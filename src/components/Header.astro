@@ -36,10 +36,7 @@ const tickerPosts = (await getCollection('posts', ({ data }) => !data.draft))
   <div class="navigation-row">
     <div class="container navigation-inner">
       <div class="social-links" aria-label="Réseaux et flux">
-        <a class="social social-facebook" href="#" aria-label="Facebook">f</a>
-        <a class="social social-x" href="#" aria-label="X">𝕏</a>
         <a class="social social-rss" href={`${base}rss.xml`} aria-label="RSS">◔</a>
-        <a class="social social-linkedin" href="#" aria-label="LinkedIn">in</a>
       </div>
 
       <button class="mobile-menu-toggle" type="button" aria-expanded="false" aria-controls="primary-menu">
