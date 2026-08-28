@@ -22,7 +22,8 @@ image: "uploads/2026/01/bunkerweb_logo.png"
 
 <p>On va utiliser la méthode officielle avec ce petit script:</p>
 
-<code># Download the script and its checksum
+```bash
+# Download the script and its checksum
 curl -fsSL -O https://github.com/bunkerity/bunkerweb/releases/download/v1.6.6/install-bunkerweb.sh
 curl -fsSL -O https://github.com/bunkerity/bunkerweb/releases/download/v1.6.6/install-bunkerweb.sh.sha256
 
@@ -30,8 +31,8 @@ curl -fsSL -O https://github.com/bunkerity/bunkerweb/releases/download/v1.6.6/in
 sha256sum -c install-bunkerweb.sh.sha256
 
 # If the check is successful, run the script
-chmod +x install-bunkerweb.sh</code>
-
+chmod +x install-bunkerweb.sh
+```
 <figure class="wp-block-image aligncenter size-full"><img src="../../uploads/2026/01/Capture-decran-2025-12-10-162425.png" alt="" class="wp-image-158"/></figure>
 
 <p>On tape la commande:</p>
