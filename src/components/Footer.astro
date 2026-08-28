@@ -1,3 +1,6 @@
+---
+const base = import.meta.env.BASE_URL;
+---
 <footer class="site-footer">
   <div class="container footer-grid">
     <div>
@@ -5,9 +8,9 @@
       <p>Informations, actualités et guides publiés directement depuis GitHub.</p>
     </div>
     <div class="footer-links">
-      <a href="/articles/">Articles</a>
-      <a href="/a-propos/">À propos</a>
-      <a href="/rss.xml">Flux RSS</a>
+      <a href={`${base}articles/`}>Articles</a>
+      <a href={`${base}a-propos/`}>À propos</a>
+      <a href={`${base}rss.xml`}>Flux RSS</a>
     </div>
   </div>
   <div class="container footer-bottom">© {new Date().getFullYear()} AuvergneInfo.fr</div>
