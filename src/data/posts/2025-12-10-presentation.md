@@ -8,7 +8,7 @@ category: "Présentation"
 tags: []
 featured: false
 draft: false
-image: "https://auvergneinfo.fr/wp-content/uploads/2025/01/cropped-pdd.jpg"
+image: "uploads/2025/01/pdd.jpg"
 ---
 
 <section id="hero" style="padding:80px 20px; text-align:center; background: linear-gradient(135deg,#003f5c,#2f8ea9); color:#fff;">

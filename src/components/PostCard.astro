@@ -5,11 +5,12 @@ const date = post.data.pubDate.toLocaleDateString('fr-FR', {
   day: '2-digit', month: 'long', year: 'numeric'
 });
 const image = post.data.image;
+const imageSrc = image ? (image.startsWith('http') ? image : `${base}${image.replace(/^\/+/, '')}`) : '';
 ---
 <article class:list={["post-card", compact && "post-card-compact"]}>
   <a class="post-thumbnail" href={`${base}articles/${post.id}/`} aria-label={post.data.title}>
     {image ? (
-      <img src={image} alt="" loading="lazy" />
+      <img src={imageSrc} alt="" loading="lazy" />
     ) : (
       <span class="post-placeholder" aria-hidden="true">
         <span>AI</span>

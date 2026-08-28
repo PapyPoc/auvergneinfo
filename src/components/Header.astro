@@ -23,7 +23,7 @@ const tickerPosts = (await getCollection('posts', ({ data }) => !data.draft))
       </a>
       <div class="header-ad" aria-label="Bannière AuvergneInfo">
         <img
-          src="https://auvergneinfo.fr/wp-content/uploads/2025/12/cropped-A.png"
+          src={`${base}uploads/2025/12/A.png`}
           alt="AuvergneInfo"
           loading="eager"
           onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';"
