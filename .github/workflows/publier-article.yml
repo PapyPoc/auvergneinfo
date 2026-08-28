@@ -1,0 +1,88 @@
+name: Publier un article depuis une Issue
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  publish:
+    if: startsWith(github.event.issue.title, '[ARTICLE] ')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Transformer l'Issue en article Markdown
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const source = issue.body || '';
+
+            const section = (name) => {
+              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const match = source.match(new RegExp(`### ${escaped}\\s*\\n+([\\s\\S]*?)(?=\\n### |$)`));
+              return match ? match[1].trim() : '';
+            };
+
+            const title = issue.title.replace(/^\[ARTICLE\]\s*/, '').trim();
+            const description = section('Résumé');
+            const category = section('Catégorie');
+            const tagsRaw = section('Tags');
+            const tags = (tagsRaw === '_No response_' ? '' : tagsRaw)
+              .split(',')
+              .map((tag) => tag.trim())
+              .filter(Boolean);
+            const content = section('Contenu');
+
+            if (!title || !description || !category || !content) {
+              core.setFailed('Le formulaire est incomplet.');
+              return;
+            }
+
+            const slug = title
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 80);
+
+            const now = new Date();
+            const day = now.toISOString().slice(0, 10);
+            const filename = `src/data/posts/${day}-${slug}.md`;
+            const published = now.toISOString();
+
+            const markdown = `---\n` +
+              `title: ${JSON.stringify(title)}\n` +
+              `description: ${JSON.stringify(description)}\n` +
+              `pubDate: ${JSON.stringify(published)}\n` +
+              `author: ${JSON.stringify(issue.user.login)}\n` +
+              `category: ${JSON.stringify(category)}\n` +
+              `tags: ${JSON.stringify(tags)}\n` +
+              `featured: false\n` +
+              `draft: false\n` +
+              `---\n\n${content}\n`;
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              path: filename,
+              message: `article: ${title}`,
+              content: Buffer.from(markdown, 'utf8').toString('base64')
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `✅ Article créé dans \`${filename}\`. Le déploiement GitHub Pages va démarrer automatiquement.`
+            });
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: 'closed'
+            });

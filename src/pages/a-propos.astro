@@ -1,0 +1,16 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="À propos" description="À propos du projet AuvergneInfo.fr.">
+  <section class="page-head container narrow">
+    <p class="section-kicker">Le projet</p>
+    <h1>À propos d’AuvergneInfo</h1>
+    <p>AuvergneInfo est un site de publication statique pensé pour rester simple, rapide et entièrement administrable depuis GitHub.</p>
+  </section>
+  <section class="container narrow prose standalone">
+    <h2>Une publication transparente</h2>
+    <p>Chaque article est un fichier Markdown versionné. L’historique des modifications est conservé par Git et le site est reconstruit automatiquement à chaque mise à jour.</p>
+    <h2>Pas de base de données</h2>
+    <p>Le site public ne nécessite ni WordPress, ni PHP, ni MariaDB. Cela réduit la surface d’attaque et simplifie les sauvegardes : le dépôt GitHub est la source du contenu.</p>
+  </section>
+</BaseLayout>

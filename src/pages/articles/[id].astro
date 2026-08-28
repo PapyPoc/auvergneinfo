@@ -1,0 +1,32 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  return posts.map((post) => ({ params: { id: post.id }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+const published = post.data.pubDate.toLocaleDateString('fr-FR', {
+  day: '2-digit', month: 'long', year: 'numeric'
+});
+---
+<BaseLayout title={post.data.title} description={post.data.description} type="article">
+  <article class="article container">
+    <header class="article-head">
+      <a class="category" href={`/categories/${encodeURIComponent(post.data.category.toLowerCase())}/`}>{post.data.category}</a>
+      <h1>{post.data.title}</h1>
+      <p class="article-lead">{post.data.description}</p>
+      <div class="article-meta">
+        <span>Par {post.data.author}</span>
+        <time datetime={post.data.pubDate.toISOString()}>{published}</time>
+      </div>
+      <div class="tags">{post.data.tags.map((tag) => <span>#{tag}</span>)}</div>
+    </header>
+    <div class="prose">
+      <Content />
+    </div>
+  </article>
+</BaseLayout>

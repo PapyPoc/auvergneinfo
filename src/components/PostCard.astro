@@ -1,0 +1,18 @@
+---
+const { post } = Astro.props;
+const date = post.data.pubDate.toLocaleDateString('fr-FR', {
+  day: '2-digit', month: 'long', year: 'numeric'
+});
+---
+<article class="post-card">
+  <div class="post-meta">
+    <a class="category" href={`/categories/${encodeURIComponent(post.data.category.toLowerCase())}/`}>{post.data.category}</a>
+    <time datetime={post.data.pubDate.toISOString()}>{date}</time>
+  </div>
+  <h2><a href={`/articles/${post.id}/`}>{post.data.title}</a></h2>
+  <p>{post.data.description}</p>
+  <div class="tags">
+    {post.data.tags.slice(0, 4).map((tag) => <span>#{tag}</span>)}
+  </div>
+  <a class="read-more" href={`/articles/${post.id}/`}>Lire l’article →</a>
+</article>

@@ -1,0 +1,68 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PostCard from '../components/PostCard.astro';
+
+const posts = (await getCollection('posts', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+const featured = posts.find((post) => post.data.featured) ?? posts[0];
+const latest = posts.filter((post) => post.id !== featured?.id).slice(0, 6);
+const categories = [...new Set(posts.map((post) => post.data.category))].sort();
+---
+<BaseLayout>
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <p class="eyebrow">AUVERGNE • ACTUALITÉS • GUIDES</p>
+        <h1>L’information locale, claire et accessible.</h1>
+        <p class="hero-copy">AuvergneInfo publie des actualités, dossiers et guides pratiques. Le contenu est versionné sur GitHub et mis en ligne automatiquement.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="/articles/">Voir les articles</a>
+          <a class="button secondary" href="/rss.xml">Suivre le RSS</a>
+        </div>
+      </div>
+      <div class="hero-panel">
+        <span>Publication</span>
+        <strong>100 % GitHub</strong>
+        <p>Markdown → commit → GitHub Actions → GitHub Pages.</p>
+      </div>
+    </div>
+  </section>
+
+  {featured && (
+    <section class="container section featured">
+      <p class="section-kicker">À la une</p>
+      <a class="featured-card" href={`/articles/${featured.id}/`}>
+        <div>
+          <span class="category">{featured.data.category}</span>
+          <h2>{featured.data.title}</h2>
+          <p>{featured.data.description}</p>
+        </div>
+        <span class="featured-arrow">→</span>
+      </a>
+    </section>
+  )}
+
+  <section class="container section">
+    <div class="section-heading">
+      <div>
+        <p class="section-kicker">Dernières publications</p>
+        <h2>À lire maintenant</h2>
+      </div>
+      <a href="/articles/">Tous les articles →</a>
+    </div>
+    <div class="post-grid">
+      {latest.map((post) => <PostCard post={post} />)}
+    </div>
+  </section>
+
+  <section class="container section categories-block">
+    <p class="section-kicker">Explorer</p>
+    <h2>Catégories</h2>
+    <div class="category-list">
+      {categories.map((category) => (
+        <a href={`/categories/${encodeURIComponent(category.toLowerCase())}/`}>{category}</a>
+      ))}
+    </div>
+  </section>
+</BaseLayout>

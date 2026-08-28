@@ -1,0 +1,50 @@
+name: Publier un article
+description: Créer une nouvelle publication AuvergneInfo depuis GitHub
+title: "[ARTICLE] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remplis ce formulaire. Une fois l'issue créée, GitHub Actions générera automatiquement l'article.
+
+  - type: textarea
+    id: resume
+    attributes:
+      label: Résumé
+      description: Une ou deux phrases affichées sur les listes d'articles et dans les résultats de recherche.
+      placeholder: Résumé de l'article...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: categorie
+    attributes:
+      label: Catégorie
+      options:
+        - Actualités
+        - Guides
+        - Technique
+        - Auvergne
+        - Événements
+        - Autre
+    validations:
+      required: true
+
+  - type: input
+    id: tags
+    attributes:
+      label: Tags
+      description: Sépare les tags avec des virgules.
+      placeholder: auvergne, réseau, sécurité
+
+  - type: textarea
+    id: contenu
+    attributes:
+      label: Contenu
+      description: Le corps de l'article en Markdown.
+      placeholder: |
+        ## Mon titre
+
+        Le contenu de l'article...
+    validations:
+      required: true

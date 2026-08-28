@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0b1720"/>
+  <circle cx="1040" cy="100" r="250" fill="#172d25"/>
+  <circle cx="110" cy="600" r="310" fill="#142831"/>
+  <text x="100" y="290" fill="#d8f05a" font-family="Arial,sans-serif" font-size="40" font-weight="700">AUVERGNEINFO.FR</text>
+  <text x="100" y="380" fill="#ffffff" font-family="Arial,sans-serif" font-size="72" font-weight="800">L'information locale,</text>
+  <text x="100" y="455" fill="#ffffff" font-family="Arial,sans-serif" font-size="72" font-weight="800">claire et accessible.</text>
+</svg>
