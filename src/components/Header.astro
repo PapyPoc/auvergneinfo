@@ -1,17 +1,116 @@
 ---
+import { getCollection } from 'astro:content';
+
 const base = import.meta.env.BASE_URL;
+const tickerPosts = (await getCollection('posts', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+  .slice(0, 4);
 ---
 <header class="site-header">
-  <div class="container nav-wrap">
-    <a class="brand" href={base} aria-label="AuvergneInfo, accueil">
-      <span class="brand-mark">AI</span>
-      <span>Auvergne<span>Info</span></span>
-    </a>
-    <nav aria-label="Navigation principale">
-      <a href={base}>Accueil</a>
-      <a href={`${base}articles/`}>Articles</a>
-      <a href={`${base}a-propos/`}>À propos</a>
-      <a href={`${base}rss.xml`}>RSS</a>
-    </nav>
+  <div class="top-bar">
+    <div class="container top-bar-inner">
+      <div class="top-date" aria-label="Date et heure">
+        <span class="top-date-icon" aria-hidden="true">▣</span>
+        <strong><span id="bloglo-date">Auvergne</span> - <span id="bloglo-time">AuvergneInfo</span></strong>
+      </div>
+    </div>
   </div>
+
+  <div class="branding-row">
+    <div class="container branding-inner">
+      <a class="site-logo" href={base} aria-label="AuvergneInfo, accueil">
+        <span>AUVERGNE</span><span class="logo-accent">INFO</span>
+      </a>
+      <div class="header-ad" aria-label="Bannière AuvergneInfo">
+        <img
+          src="https://auvergneinfo.fr/wp-content/uploads/2025/12/cropped-A.png"
+          alt="AuvergneInfo"
+          loading="eager"
+          onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';"
+        />
+        <span class="header-ad-fallback">AUVERGNEINFO.FR</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="navigation-row">
+    <div class="container navigation-inner">
+      <div class="social-links" aria-label="Réseaux et flux">
+        <a class="social social-facebook" href="#" aria-label="Facebook">f</a>
+        <a class="social social-x" href="#" aria-label="X">𝕏</a>
+        <a class="social social-rss" href={`${base}rss.xml`} aria-label="RSS">◔</a>
+        <a class="social social-linkedin" href="#" aria-label="LinkedIn">in</a>
+      </div>
+
+      <button class="mobile-menu-toggle" type="button" aria-expanded="false" aria-controls="primary-menu">
+        <span></span><span></span><span></span>
+        <span class="screen-reader-text">Menu</span>
+      </button>
+
+      <nav id="primary-menu" class="primary-menu" aria-label="Navigation principale">
+        <a href={base}>Accueil</a>
+        <a href={`${base}articles/`}>Articles</a>
+        <a href={`${base}categories/actualites/`}>Actualités</a>
+        <a href={`${base}categories/guides/`}>Guides</a>
+        <a href={`${base}a-propos/`}>À propos</a>
+      </nav>
+
+      <div class="header-tools">
+        <button class="icon-button theme-toggle" type="button" aria-label="Changer le thème">◐</button>
+        <a class="icon-button" href={`${base}articles/`} aria-label="Rechercher">⌕</a>
+        <a class="icon-button notification-button" href={`${base}rss.xml`} aria-label="S'abonner au RSS">●</a>
+      </div>
+    </div>
+  </div>
+
+  {tickerPosts.length > 0 && (
+    <div class="ticker-wrap">
+      <div class="container ticker-shell">
+        <div class="ticker-label"><span aria-hidden="true">ϟ</span> Breakings</div>
+        <div class="ticker-track">
+          {tickerPosts.map((post) => (
+            <a class="ticker-item" href={`${base}articles/${post.id}/`}>
+              <span class="ticker-dot" aria-hidden="true"></span>
+              <span class="ticker-copy">
+                <strong>{post.data.title}</strong>
+                <small>{post.data.pubDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</small>
+              </span>
+            </a>
+          ))}
+        </div>
+        <span class="ticker-next" aria-hidden="true">▶</span>
+      </div>
+    </div>
+  )}
 </header>
+
+<script is:inline>
+  (() => {
+    const dateNode = document.getElementById('bloglo-date');
+    const timeNode = document.getElementById('bloglo-time');
+    const updateClock = () => {
+      const now = new Date();
+      if (dateNode) dateNode.textContent = now.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+      if (timeNode) timeNode.textContent = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    };
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    const toggle = document.querySelector('.mobile-menu-toggle');
+    const menu = document.getElementById('primary-menu');
+    toggle?.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!open));
+      menu?.classList.toggle('is-open', !open);
+    });
+
+    const themeToggle = document.querySelector('.theme-toggle');
+    const stored = localStorage.getItem('auvergneinfo-theme');
+    if (stored === 'dark') document.documentElement.dataset.theme = 'dark';
+    themeToggle?.addEventListener('click', () => {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+      localStorage.setItem('auvergneinfo-theme', dark ? 'light' : 'dark');
+    });
+  })();
+</script>

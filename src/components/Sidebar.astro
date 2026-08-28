@@ -1,0 +1,50 @@
+---
+const { posts = [], categories = [] } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const recent = posts.slice(0, 5);
+const counts = categories.map((category) => ({
+  name: category,
+  count: posts.filter((post) => post.data.category === category).length
+}));
+---
+<aside class="sidebar" aria-label="Barre latérale">
+  <section class="widget widget-search">
+    <h3 class="widget-title">Rechercher</h3>
+    <form class="search-box" action={`${base}articles/`} method="get">
+      <input type="search" name="q" placeholder="Rechercher…" aria-label="Rechercher" />
+      <button type="submit" aria-label="Lancer la recherche">⌕</button>
+    </form>
+  </section>
+
+  <section class="widget">
+    <h3 class="widget-title">Articles récents</h3>
+    <div class="popular-list">
+      {recent.map((post, index) => (
+        <a class="popular-item" href={`${base}articles/${post.id}/`}>
+          <span class="popular-thumb"><span>{String(index + 1).padStart(2, '0')}</span></span>
+          <span>
+            <strong>{post.data.title}</strong>
+            <small>◷ {post.data.pubDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</small>
+          </span>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="widget">
+    <h3 class="widget-title">Catégories</h3>
+    <ul class="category-widget-list">
+      {counts.map(({ name, count }) => (
+        <li>
+          <a href={`${base}categories/${encodeURIComponent(name.toLowerCase())}/`}><span>{name}</span><b>{count}</b></a>
+        </li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="widget widget-about">
+    <h3 class="widget-title">AuvergneInfo</h3>
+    <p>Actualités, informations et guides autour de l’Auvergne.</p>
+    <a class="sidebar-more" href={`${base}a-propos/`}>En savoir plus →</a>
+  </section>
+</aside>

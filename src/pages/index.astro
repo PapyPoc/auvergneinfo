@@ -2,68 +2,50 @@
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PostCard from '../components/PostCard.astro';
+import Sidebar from '../components/Sidebar.astro';
 
 const posts = (await getCollection('posts', ({ data }) => !data.draft))
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
-const featured = posts.find((post) => post.data.featured) ?? posts[0];
-const latest = posts.filter((post) => post.id !== featured?.id).slice(0, 6);
 const categories = [...new Set(posts.map((post) => post.data.category))].sort();
 const base = import.meta.env.BASE_URL;
+const mightLike = posts.slice(0, 4);
 ---
-<BaseLayout>
-  <section class="hero">
-    <div class="container hero-grid">
-      <div>
-        <p class="eyebrow">AUVERGNE • ACTUALITÉS • GUIDES</p>
-        <h1>L’information locale, claire et accessible.</h1>
-        <p class="hero-copy">AuvergneInfo publie des actualités, dossiers et guides pratiques. Le contenu est versionné sur GitHub et mis en ligne automatiquement.</p>
-        <div class="hero-actions">
-          <a class="button primary" href={`${base}articles/`}>Voir les articles</a>
-          <a class="button secondary" href={`${base}rss.xml`}>Suivre le RSS</a>
+<BaseLayout title="AuvergneInfo — Actualités, informations et guides" description="Actualités, informations et guides autour de l’Auvergne.">
+  {mightLike.length > 0 && (
+    <section class="pyml-section">
+      <div class="container">
+        <div class="section-title-row">
+          <h2>Post You Might Like</h2>
+          <span class="section-title-line"></span>
+        </div>
+        <div class="pyml-grid">
+          {mightLike.map((post) => (
+            <a class="pyml-card" href={`${base}articles/${post.id}/`}>
+              <span class="pyml-thumb"><span>AI</span></span>
+              <span class="pyml-copy">
+                <span class="category">{post.data.category}</span>
+                <strong>{post.data.title}</strong>
+                <small>◷ {post.data.pubDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</small>
+              </span>
+            </a>
+          ))}
         </div>
       </div>
-      <div class="hero-panel">
-        <span>Publication</span>
-        <strong>100 % GitHub</strong>
-        <p>Markdown → commit → GitHub Actions → GitHub Pages.</p>
-      </div>
-    </div>
-  </section>
-
-  {featured && (
-    <section class="container section featured">
-      <p class="section-kicker">À la une</p>
-      <a class="featured-card" href={`${base}articles/${featured.id}/`}>
-        <div>
-          <span class="category">{featured.data.category}</span>
-          <h2>{featured.data.title}</h2>
-          <p>{featured.data.description}</p>
-        </div>
-        <span class="featured-arrow">→</span>
-      </a>
     </section>
   )}
 
-  <section class="container section">
-    <div class="section-heading">
-      <div>
-        <p class="section-kicker">Dernières publications</p>
-        <h2>À lire maintenant</h2>
+  <section class="content-section container">
+    <div class="content-with-sidebar">
+      <div class="feed-column">
+        <div class="section-title-row section-title-feed">
+          <h1>Dernières actualités</h1>
+          <span class="section-title-line"></span>
+        </div>
+        <div class="post-grid bloglo-masonry">
+          {posts.map((post) => <PostCard post={post} />)}
+        </div>
       </div>
-      <a href={`${base}articles/`}>Tous les articles →</a>
-    </div>
-    <div class="post-grid">
-      {latest.map((post) => <PostCard post={post} />)}
-    </div>
-  </section>
-
-  <section class="container section categories-block">
-    <p class="section-kicker">Explorer</p>
-    <h2>Catégories</h2>
-    <div class="category-list">
-      {categories.map((category) => (
-        <a href={`${base}categories/${encodeURIComponent(category.toLowerCase())}/`}>{category}</a>
-      ))}
+      <Sidebar posts={posts} categories={categories} />
     </div>
   </section>
 </BaseLayout>

@@ -1,19 +1,38 @@
 ---
-const { post } = Astro.props;
+const { post, compact = false } = Astro.props;
 const base = import.meta.env.BASE_URL;
 const date = post.data.pubDate.toLocaleDateString('fr-FR', {
   day: '2-digit', month: 'long', year: 'numeric'
 });
+const image = post.data.image;
 ---
-<article class="post-card">
-  <div class="post-meta">
-    <a class="category" href={`${base}categories/${encodeURIComponent(post.data.category.toLowerCase())}/`}>{post.data.category}</a>
-    <time datetime={post.data.pubDate.toISOString()}>{date}</time>
+<article class:list={["post-card", compact && "post-card-compact"]}>
+  <a class="post-thumbnail" href={`${base}articles/${post.id}/`} aria-label={post.data.title}>
+    {image ? (
+      <img src={image} alt="" loading="lazy" />
+    ) : (
+      <span class="post-placeholder" aria-hidden="true">
+        <span>AI</span>
+      </span>
+    )}
+    <span class="pin-badge" aria-hidden="true">⌁</span>
+  </a>
+  <div class="post-card-body">
+    <div class="post-categories">
+      <a class="category" href={`${base}categories/${encodeURIComponent(post.data.category.toLowerCase())}/`}>{post.data.category}</a>
+    </div>
+    <h2><a href={`${base}articles/${post.id}/`}>{post.data.title}</a></h2>
+    <div class="post-meta bloglo-meta">
+      <span class="author-avatar">AI</span>
+      <span>Par {post.data.author}</span>
+      <span class="meta-separator">|</span>
+      <time datetime={post.data.pubDate.toISOString()}>{date}</time>
+    </div>
+    {!compact && <p class="post-excerpt">{post.data.description}</p>}
+    {!compact && (
+      <a class="read-more" href={`${base}articles/${post.id}/`}>
+        Lire la suite <span aria-hidden="true">→</span>
+      </a>
+    )}
   </div>
-  <h2><a href={`${base}articles/${post.id}/`}>{post.data.title}</a></h2>
-  <p>{post.data.description}</p>
-  <div class="tags">
-    {post.data.tags.slice(0, 4).map((tag) => <span>#{tag}</span>)}
-  </div>
-  <a class="read-more" href={`${base}articles/${post.id}/`}>Lire l’article →</a>
 </article>
