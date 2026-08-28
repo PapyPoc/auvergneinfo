@@ -10,7 +10,6 @@ featured: false
 draft: false
 image: "https://auvergneinfo.fr/wp-content/uploads/2025/01/cropped-pdd.jpg"
 ---
-<div class="wp-block-cover is-light"><img class="wp-block-cover__image-background wp-image-40 size-full" alt="" src="https://auvergneinfo.fr/wp-content/uploads/2025/01/cropped-pdd.jpg" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-background-dim" style="background-color:#8ca7ad"></span><div class="wp-block-cover__inner-container"><p class="has-text-align-center has-large-font-size"></p></div></div>
 
 <section id="hero" style="padding:80px 20px; text-align:center; background: linear-gradient(135deg,#003f5c,#2f8ea9); color:#fff;">
 <div style="max-width:900px; margin:0 auto;">
