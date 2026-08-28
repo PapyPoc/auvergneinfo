@@ -1,0 +1,49 @@
+name: Finaliser les images locales
+
+on:
+  push:
+    branches: [media/finalize-local-images]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer la branche
+        uses: actions/checkout@v7
+        with:
+          ref: media/finalize-local-images
+          fetch-depth: 0
+
+      - name: Finaliser les chemins d'images
+        run: python3 scripts/finalize-local-images.py
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Vérifier le build Astro
+        run: npm run build
+        env:
+          PAGES_ORIGIN: https://papypoc.github.io
+          PAGES_BASE_PATH: /auvergneinfo
+
+      - name: Enregistrer les changements
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src
+          if git diff --cached --quiet; then
+            echo "Aucun changement à commiter."
+            exit 0
+          fi
+          git commit -m "Utiliser les images locales du site"
+          git push origin HEAD:media/finalize-local-images
