@@ -1,17 +1,44 @@
 ---
+import { getCollection } from 'astro:content';
 const base = import.meta.env.BASE_URL;
+const posts = (await getCollection('posts', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+const categories = [...new Set(posts.map((post) => post.data.category))].sort();
 ---
 <footer class="site-footer">
-  <div class="container footer-grid">
-    <div>
-      <strong>AuvergneInfo</strong>
-      <p>Informations, actualités et guides publiés directement depuis GitHub.</p>
-    </div>
-    <div class="footer-links">
-      <a href={`${base}articles/`}>Articles</a>
-      <a href={`${base}a-propos/`}>À propos</a>
-      <a href={`${base}rss.xml`}>Flux RSS</a>
+  <div class="footer-main">
+    <div class="container footer-widgets">
+      <section class="footer-widget">
+        <a class="footer-logo" href={base}>AUVERGNE<span>INFO</span></a>
+        <p>L’actualité, les informations et les guides utiles de l’Auvergne, publiés simplement et accessibles à tous.</p>
+      </section>
+      <section class="footer-widget">
+        <h3>Derniers articles</h3>
+        <ul>
+          {posts.slice(0, 4).map((post) => <li><a href={`${base}articles/${post.id}/`}>{post.data.title}</a></li>)}
+        </ul>
+      </section>
+      <section class="footer-widget">
+        <h3>Catégories</h3>
+        <ul>
+          {categories.slice(0, 6).map((category) => <li><a href={`${base}categories/${encodeURIComponent(category.toLowerCase())}/`}>{category}</a></li>)}
+        </ul>
+      </section>
+      <section class="footer-widget">
+        <h3>Navigation</h3>
+        <ul>
+          <li><a href={base}>Accueil</a></li>
+          <li><a href={`${base}articles/`}>Articles</a></li>
+          <li><a href={`${base}a-propos/`}>À propos</a></li>
+          <li><a href={`${base}rss.xml`}>Flux RSS</a></li>
+        </ul>
+      </section>
     </div>
   </div>
-  <div class="container footer-bottom">© {new Date().getFullYear()} AuvergneInfo.fr</div>
+  <div class="footer-copyright">
+    <div class="container copyright-inner">
+      <span>© {new Date().getFullYear()} AuvergneInfo.fr</span>
+      <span>Actualités • Informations • Guides</span>
+    </div>
+  </div>
 </footer>
