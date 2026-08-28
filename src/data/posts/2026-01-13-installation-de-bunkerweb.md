@@ -4,7 +4,7 @@ description: "Il existe plusieurs façons d'installer BunkerWeb, je vais me cont
 pubDate: "2026-01-13T11:58:33+01:00"
 updatedDate: "2026-01-13T13:18:04+01:00"
 author: "poc"
-category: "Non classé"
+category: "Tutoriel"
 tags: []
 featured: true
 draft: false
