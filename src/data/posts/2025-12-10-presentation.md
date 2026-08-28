@@ -4,7 +4,7 @@ description: "Administrateur d’Infrastructure Sécurisé"
 pubDate: "2025-12-10T18:22:45+01:00"
 updatedDate: "2025-12-16T15:45:22+01:00"
 author: "poc"
-category: "Non classé"
+category: "Présentation"
 tags: []
 featured: false
 draft: false
