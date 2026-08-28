@@ -8,6 +8,7 @@ const posts = (await getCollection('posts', ({ data }) => !data.draft))
 const featured = posts.find((post) => post.data.featured) ?? posts[0];
 const latest = posts.filter((post) => post.id !== featured?.id).slice(0, 6);
 const categories = [...new Set(posts.map((post) => post.data.category))].sort();
+const base = import.meta.env.BASE_URL;
 ---
 <BaseLayout>
   <section class="hero">
@@ -17,8 +18,8 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
         <h1>L’information locale, claire et accessible.</h1>
         <p class="hero-copy">AuvergneInfo publie des actualités, dossiers et guides pratiques. Le contenu est versionné sur GitHub et mis en ligne automatiquement.</p>
         <div class="hero-actions">
-          <a class="button primary" href="/articles/">Voir les articles</a>
-          <a class="button secondary" href="/rss.xml">Suivre le RSS</a>
+          <a class="button primary" href={`${base}articles/`}>Voir les articles</a>
+          <a class="button secondary" href={`${base}rss.xml`}>Suivre le RSS</a>
         </div>
       </div>
       <div class="hero-panel">
@@ -32,7 +33,7 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
   {featured && (
     <section class="container section featured">
       <p class="section-kicker">À la une</p>
-      <a class="featured-card" href={`/articles/${featured.id}/`}>
+      <a class="featured-card" href={`${base}articles/${featured.id}/`}>
         <div>
           <span class="category">{featured.data.category}</span>
           <h2>{featured.data.title}</h2>
@@ -49,7 +50,7 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
         <p class="section-kicker">Dernières publications</p>
         <h2>À lire maintenant</h2>
       </div>
-      <a href="/articles/">Tous les articles →</a>
+      <a href={`${base}articles/`}>Tous les articles →</a>
     </div>
     <div class="post-grid">
       {latest.map((post) => <PostCard post={post} />)}
@@ -61,7 +62,7 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
     <h2>Catégories</h2>
     <div class="category-list">
       {categories.map((category) => (
-        <a href={`/categories/${encodeURIComponent(category.toLowerCase())}/`}>{category}</a>
+        <a href={`${base}categories/${encodeURIComponent(category.toLowerCase())}/`}>{category}</a>
       ))}
     </div>
   </section>
