@@ -167,7 +167,7 @@ button, input { font: inherit; }
 .single-meta { margin-top: 17px; }
 .single-layout { grid-template-columns: minmax(0, 1fr) minmax(285px, 30%); }
 .article-card { min-width: 0; background: var(--surface); border: 1px solid #dfe3e8; box-shadow: var(--shadow); padding: 0 34px 38px; overflow: hidden; }
-.article-featured-image, .article-featured-placeholder { width: calc(100% + 68px); margin-left: -34px; margin-bottom: 30px; aspect-ratio: 16/8; object-fit: cover; }
+.article-featured-image, .article-featured-placeholder { width: calc(100% + 68px); margin-left: 0px; margin-bottom: 30px; aspect-ratio: 16/8; object-fit: cover; }
 .article-featured-placeholder { display: grid; place-items: center; background: linear-gradient(135deg,#e9eef7,#a9c0e7); color: rgba(0,75,237,.38); font-size: clamp(3rem,5vw,6rem); font-weight: 700; letter-spacing: -.08em; }
 .article-lead { font-size: 1.9rem; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 24px; }
 .prose { font-size: 1.7rem; line-height: 1.8; }
