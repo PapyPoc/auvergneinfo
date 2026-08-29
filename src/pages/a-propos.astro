@@ -1,16 +1,42 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 ---
-<BaseLayout title="À propos" description="À propos du projet AuvergneInfo.fr.">
+<BaseLayout
+  title="À propos"
+  description="AuvergneInfo partage des principes, retours d’expérience et guides pratiques autour de l’administration d’infrastructures systèmes et réseaux."
+>
   <section class="page-head container narrow">
     <p class="section-kicker">Le projet</p>
     <h1>À propos d’AuvergneInfo</h1>
-    <p>AuvergneInfo est un site de publication statique pensé pour rester simple, rapide et entièrement administrable depuis GitHub.</p>
+    <p>
+      AuvergneInfo est un site consacré à l’administration d’infrastructures systèmes et réseaux. Il a pour objectif de faire découvrir des principes techniques et de montrer, de manière concrète, comment déployer, configurer et exploiter différents services.
+    </p>
   </section>
+
   <section class="container narrow prose standalone">
-    <h2>Une publication transparente</h2>
-    <p>Chaque article est un fichier Markdown versionné. L’historique des modifications est conservé par Git et le site est reconstruit automatiquement à chaque mise à jour.</p>
-    <h2>Pas de base de données</h2>
-    <p>Le site public ne nécessite ni WordPress, ni PHP, ni MariaDB. Cela réduit la surface d’attaque et simplifie les sauvegardes : le dépôt GitHub est la source du contenu.</p>
+    <h2>Comprendre avant d’installer</h2>
+    <p>
+      Les articles ne se limitent pas à une suite de commandes. Lorsqu’un sujet le permet, ils présentent d’abord le rôle du service, son fonctionnement, son architecture, les flux réseau concernés et les principaux choix de configuration.
+    </p>
+
+    <h2>Des installations reproductibles</h2>
+    <p>
+      Les guides sont conçus pour pouvoir être reproduits étape par étape : prérequis, préparation du système, installation, configuration, règles réseau, sécurisation et vérifications finales. L’objectif est de permettre au lecteur de comprendre ce qu’il met en place et de pouvoir l’adapter à sa propre infrastructure.
+    </p>
+
+    <h2>Systèmes, réseaux et services d’infrastructure</h2>
+    <p>
+      AuvergneInfo aborde notamment Linux, la virtualisation, les réseaux, les pare-feu, les reverse proxies, les services web, la messagerie, le DNS, la supervision, l’automatisation et la cybersécurité. Les sujets évoluent au fil des projets, des expérimentations et des technologies rencontrées.
+    </p>
+
+    <h2>Partager des retours d’expérience</h2>
+    <p>
+      Une installation ne se déroule pas toujours comme prévu. Les articles peuvent donc également présenter les erreurs rencontrées, les tests effectués, les méthodes de diagnostic et les corrections appliquées. Ces retours font partie intégrante de l’apprentissage et permettent de mieux comprendre le comportement réel d’un service.
+    </p>
+
+    <h2>Une documentation pratique et accessible</h2>
+    <p>
+      Le but d’AuvergneInfo est de constituer progressivement une documentation technique claire, pratique et réutilisable, aussi bien pour découvrir un principe que pour retrouver rapidement les étapes nécessaires au déploiement d’un service.
+    </p>
   </section>
 </BaseLayout>
