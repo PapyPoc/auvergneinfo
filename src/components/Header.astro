@@ -73,7 +73,7 @@ const tickerEntries = tickerPosts.map((post) => ({
         <div class="ticker-track" aria-label="Derniers articles">
           <div
             class="ticker-slider"
-            style={`--ticker-visible:${Math.min(tickerEntries.length, 3)}`}
+            style={`--ticker-visible:${Math.min(tickerEntries.length, 4)}`}
             aria-live="off"
           >
             {tickerEntries.map(({ post, imageSrc }) => (
@@ -153,8 +153,8 @@ const tickerEntries = tickerPosts.map((post) => ({
   }
 
   .ticker-slider .ticker-item {
-    flex: 0 0 calc(100% / var(--ticker-visible, 3));
-    width: calc(100% / var(--ticker-visible, 3));
+    flex: 0 0 calc(100% / var(--ticker-visible, 4));
+    width: calc(100% / var(--ticker-visible, 4));
     backface-visibility: hidden;
   }
 
@@ -243,7 +243,7 @@ const tickerEntries = tickerPosts.map((post) => ({
     const slider = ticker?.querySelector('.ticker-slider');
     const nextButton = ticker?.querySelector('.ticker-next');
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const animationDuration = 1100;
+    const animationDuration = 1800;
     let timer = null;
     let animating = false;
 
@@ -251,7 +251,7 @@ const tickerEntries = tickerPosts.map((post) => ({
     const visibleCount = () => {
       if (!slider) return 1;
       const value = Number.parseInt(getComputedStyle(slider).getPropertyValue('--ticker-visible'), 10);
-      return Math.max(1, Math.min(Number.isFinite(value) ? value : 3, itemCount()));
+      return Math.max(1, Math.min(Number.isFinite(value) ? value : 4, itemCount()));
     };
 
     const advanceTicker = () => {
@@ -312,13 +312,13 @@ const tickerEntries = tickerPosts.map((post) => ({
     const startTicker = () => {
       stopTicker();
       if (!slider || itemCount() < 2 || reduceMotion.matches) return;
-      timer = window.setInterval(advanceTicker, 5200);
+      timer = window.setInterval(advanceTicker, 6500);
     };
 
     nextButton?.addEventListener('click', () => {
       stopTicker();
       advanceTicker();
-      window.setTimeout(startTicker, animationDuration + 450);
+      window.setTimeout(startTicker, animationDuration + 650);
     });
 
     ticker?.addEventListener('pointerenter', stopTicker);
