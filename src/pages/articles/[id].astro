@@ -83,7 +83,15 @@ const categories = [...new Set(posts.map((entry) => entry.data.category))].sort(
         const languageClass = code
           ? Array.from(code.classList).find((name) => name.startsWith('language-'))
           : null;
-        const language = languageClass ? languageClass.replace('language-', '') : 'code';
+        const preLanguageClass = Array.from(pre.classList).find((name) => name.startsWith('language-'));
+        const language =
+          pre.dataset.language ||
+          pre.getAttribute('data-language') ||
+          code?.dataset.language ||
+          code?.getAttribute('data-language') ||
+          (languageClass ? languageClass.replace('language-', '') : '') ||
+          (preLanguageClass ? preLanguageClass.replace('language-', '') : '') ||
+          'code';
 
         const wrapper = document.createElement('div');
         wrapper.className = 'code-block-wrapper';
