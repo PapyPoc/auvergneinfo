@@ -13,10 +13,17 @@
   background: var(--media-backdrop, #20262c);
 }
 
-/* Les images placées dans le corps d'un article utilisent le même fond.
- * Pour une image opaque, ce fond est invisible ; il n'apparaît qu'à travers
+/* Images placées dans le corps d'un article : centrées, responsives et lisibles.
+ * Pour une image opaque, le fond est invisible ; il n'apparaît qu'à travers
  * les pixels transparents d'un PNG ou d'un WebP avec transparence. */
-.prose img {
+.article-card .prose img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 28px auto !important;
+  object-fit: contain;
+  object-position: center;
   background: var(--media-backdrop, #20262c);
 }
 
@@ -32,6 +39,11 @@
     height: clamp(200px, 58vw, 300px);
     margin-left: -20px;
     padding: 16px;
+  }
+
+  .article-card .prose img {
+    max-width: 100%;
+    margin: 22px auto !important;
   }
 
   .article-featured-placeholder {
