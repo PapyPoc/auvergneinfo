@@ -4,7 +4,15 @@ import { getCollection } from 'astro:content';
 const base = import.meta.env.BASE_URL;
 const tickerPosts = (await getCollection('posts', ({ data }) => !data.draft))
   .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
-  .slice(0, 4);
+  .slice(0, 5);
+
+const tickerEntries = tickerPosts.map((post) => {
+  const image = post.data.image;
+  return {
+    post,
+    imageSrc: image ? (image.startsWith('http') ? image : `${base}${image.replace(/^\/+/, '')}`) : ''
+  };
+});
 ---
 <header class="site-header">
   <div class="top-bar">
@@ -60,26 +68,109 @@ const tickerPosts = (await getCollection('posts', ({ data }) => !data.draft))
     </div>
   </div>
 
-  {tickerPosts.length > 0 && (
+  {tickerEntries.length > 0 && (
     <div class="ticker-wrap">
-      <div class="container ticker-shell">
+      <div class="container ticker-shell" data-animated-ticker>
         <div class="ticker-label"><span aria-hidden="true">ϟ</span> Breakings</div>
-        <div class="ticker-track">
-          {tickerPosts.map((post) => (
-            <a class="ticker-item" href={`${base}articles/${post.id}/`}>
-              <span class="ticker-dot" aria-hidden="true"></span>
-              <span class="ticker-copy">
-                <strong>{post.data.title}</strong>
-                <small>{post.data.pubDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</small>
-              </span>
-            </a>
-          ))}
+        <div class="ticker-track" aria-label="Derniers articles">
+          <div
+            class="ticker-slider"
+            style={`--ticker-visible:${Math.min(tickerEntries.length, 3)}`}
+            aria-live="off"
+          >
+            {tickerEntries.map(({ post, imageSrc }) => (
+              <a class="ticker-item" href={`${base}articles/${post.id}/`}>
+                {imageSrc ? (
+                  <span class="ticker-thumb" aria-hidden="true">
+                    <img src={imageSrc} alt="" loading="lazy" />
+                  </span>
+                ) : (
+                  <span class="ticker-dot" aria-hidden="true"></span>
+                )}
+                <span class="ticker-copy">
+                  <strong>{post.data.title}</strong>
+                  <small>{post.data.pubDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</small>
+                </span>
+              </a>
+            ))}
+          </div>
         </div>
-        <span class="ticker-next" aria-hidden="true">▶</span>
+        <button class="ticker-next" type="button" aria-label="Afficher l’article suivant">▶</button>
       </div>
     </div>
   )}
 </header>
+
+<style>
+  .ticker-shell .ticker-track {
+    display: block;
+    overflow: hidden;
+  }
+
+  .ticker-slider {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    transform: translateX(0);
+    will-change: transform;
+  }
+
+  .ticker-slider .ticker-item {
+    flex: 0 0 calc(100% / var(--ticker-visible, 3));
+    width: calc(100% / var(--ticker-visible, 3));
+  }
+
+  .ticker-thumb {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 1px #dfe5ee;
+    background: #e8edf5;
+  }
+
+  .ticker-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .ticker-next {
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+    transition: background .2s ease;
+  }
+
+  .ticker-next:hover,
+  .ticker-next:focus-visible {
+    background: var(--accent);
+  }
+
+  @media (max-width: 980px) {
+    .ticker-slider {
+      --ticker-visible: 2 !important;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .ticker-slider {
+      --ticker-visible: 1 !important;
+    }
+
+    .ticker-copy strong {
+      font-size: 1.35rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ticker-slider {
+      transition: none !important;
+    }
+  }
+</style>
 
 <script is:inline>
   (() => {
@@ -109,5 +200,75 @@ const tickerPosts = (await getCollection('posts', ({ data }) => !data.draft))
       document.documentElement.dataset.theme = dark ? 'light' : 'dark';
       localStorage.setItem('auvergneinfo-theme', dark ? 'light' : 'dark');
     });
+
+    const ticker = document.querySelector('[data-animated-ticker]');
+    const slider = ticker?.querySelector('.ticker-slider');
+    const nextButton = ticker?.querySelector('.ticker-next');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let timer = null;
+    let animating = false;
+
+    const itemCount = () => slider?.children.length ?? 0;
+    const visibleCount = () => {
+      if (!slider) return 1;
+      const value = Number.parseInt(getComputedStyle(slider).getPropertyValue('--ticker-visible'), 10);
+      return Math.max(1, Math.min(Number.isFinite(value) ? value : 3, itemCount()));
+    };
+
+    const advanceTicker = () => {
+      if (!slider || animating || itemCount() < 2) return;
+
+      const shift = 100 / visibleCount();
+      const reduced = reduceMotion.matches;
+      animating = true;
+      slider.style.transition = reduced ? 'none' : 'transform .55s cubic-bezier(.4,0,.2,1)';
+      slider.style.transform = `translateX(-${shift}%)`;
+
+      const finish = () => {
+        const first = slider.firstElementChild;
+        if (first) slider.appendChild(first);
+        slider.style.transition = 'none';
+        slider.style.transform = 'translateX(0)';
+        void slider.offsetWidth;
+        animating = false;
+      };
+
+      if (reduced) finish();
+      else window.setTimeout(finish, 560);
+    };
+
+    const stopTicker = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    const startTicker = () => {
+      stopTicker();
+      if (!slider || itemCount() < 2 || reduceMotion.matches) return;
+      timer = window.setInterval(advanceTicker, 4200);
+    };
+
+    nextButton?.addEventListener('click', () => {
+      stopTicker();
+      advanceTicker();
+      window.setTimeout(startTicker, 700);
+    });
+
+    ticker?.addEventListener('pointerenter', stopTicker);
+    ticker?.addEventListener('pointerleave', startTicker);
+    ticker?.addEventListener('focusin', stopTicker);
+    ticker?.addEventListener('focusout', (event) => {
+      if (!ticker.contains(event.relatedTarget)) startTicker();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopTicker();
+      else startTicker();
+    });
+
+    reduceMotion.addEventListener?.('change', startTicker);
+    startTicker();
   })();
 </script>
