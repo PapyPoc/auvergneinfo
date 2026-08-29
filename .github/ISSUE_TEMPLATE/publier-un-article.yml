@@ -10,7 +10,8 @@ body:
         **Images :**
         - tu peux glisser-déposer une image dans la zone **Image principale** ;
         - tu peux aussi glisser-déposer des images directement dans **Contenu**, exactement à l'endroit où elles doivent apparaître ;
-        - GitHub générera automatiquement le Markdown de l'image.
+        - les images déposées sont automatiquement téléchargées dans `public/uploads/AAAA/MM/` ;
+        - les liens GitHub sont automatiquement remplacés par les chemins locaux du site.
 
         **Gestion automatique de la vignette :**
         1. si une image principale est déposée ou renseignée, elle est utilisée ;
@@ -51,7 +52,7 @@ body:
     id: image
     attributes:
       label: Image principale (optionnelle)
-      description: Glisse-dépose ici l'image principale, ou saisis un chemin depuis public / une URL complète. Laisse vide pour la détection automatique.
+      description: Glisse-dépose ici l'image principale, ou saisis un chemin depuis public / une URL complète. Une image déposée sera copiée automatiquement dans public/uploads/AAAA/MM/.
       placeholder: |
         Glisse-dépose une image ici…
 
@@ -61,7 +62,7 @@ body:
     id: contenu
     attributes:
       label: Contenu
-      description: Le corps de l'article en Markdown. Tu peux glisser-déposer des images directement ici, à l'endroit exact où elles doivent apparaître.
+      description: Le corps de l'article en Markdown. Tu peux glisser-déposer des images directement ici ; elles seront copiées localement et leurs liens seront réécrits automatiquement.
       placeholder: |
         ## Mon titre
 
