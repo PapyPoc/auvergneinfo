@@ -13,18 +13,52 @@
   background: var(--media-backdrop, #20262c);
 }
 
+/* Les articles importés de WordPress placent généralement les images dans
+ * des <figure class="wp-block-image">. On centre donc le conteneur complet
+ * sur toute la largeur disponible avant de centrer l'image elle-même. */
+.article-card .prose figure,
+.article-card .prose .wp-block-image {
+  width: 100%;
+  max-width: 100%;
+  margin: 28px 0 !important;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
 /* Images placées dans le corps d'un article : centrées, responsives et lisibles.
  * Pour une image opaque, le fond est invisible ; il n'apparaît qu'à travers
  * les pixels transparents d'un PNG ou d'un WebP avec transparence. */
+.article-card .prose figure > img,
+.article-card .prose .wp-block-image > img,
+.article-card .prose > img,
+.article-card .prose p > img,
 .article-card .prose img {
   display: block;
   width: auto;
   max-width: 100%;
   height: auto;
-  margin: 28px auto !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
   object-fit: contain;
   object-position: center;
   background: var(--media-backdrop, #20262c);
+}
+
+.article-card .prose figure > img,
+.article-card .prose .wp-block-image > img,
+.article-card .prose > img {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.article-card .prose figcaption {
+  width: 100%;
+  margin-top: 8px;
+  text-align: center;
 }
 
 /* Le placeholder garde exactement le même cadre visuel. */
@@ -41,9 +75,15 @@
     padding: 16px;
   }
 
+  .article-card .prose figure,
+  .article-card .prose .wp-block-image {
+    margin: 22px 0 !important;
+  }
+
   .article-card .prose img {
     max-width: 100%;
-    margin: 22px auto !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
   }
 
   .article-featured-placeholder {
