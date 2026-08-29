@@ -3,7 +3,7 @@
   display: block;
   width: calc(100% + 68px);
   height: clamp(240px, 30vw, 420px);
-  margin-left: -34px;
+  margin-left: 0px;
   margin-bottom: 30px;
   padding: clamp(18px, 2.5vw, 34px);
   aspect-ratio: auto;
