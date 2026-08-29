@@ -16,12 +16,15 @@ on:
 permissions:
   contents: write
   actions: write
-  pull-requests: read
+  issues: write
+  pull-requests: write
 
 jobs:
   cleanup:
     name: Nettoyer le dépôt
     runs-on: ubuntu-latest
+    env:
+      CLEANUP_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
 
     steps:
       - name: Vérifier le dernier jour du mois
@@ -99,6 +102,61 @@ jobs:
               echo "Conservation de $branch : changements non fusionnés détectés."
             fi
           done
+
+      - name: Signaler l'absence du CLEANUP_TOKEN
+        if: steps.calendar.outputs.run == 'true' && env.CLEANUP_TOKEN == ''
+        shell: bash
+        run: |
+          echo "CLEANUP_TOKEN absent : les issues fermées ne seront pas supprimées et les PR fermées ne seront pas archivées."
+          echo "Le nettoyage des branches et des runs Actions reste actif."
+
+      - name: Supprimer définitivement les issues fermées
+        if: steps.calendar.outputs.run == 'true' && env.CLEANUP_TOKEN != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.CLEANUP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          repo="$GITHUB_REPOSITORY"
+
+          gh api --paginate "repos/${repo}/issues?state=closed&per_page=100" \
+            --jq '.[] | select(.pull_request == null) | [.node_id, .number, .title] | @tsv' \
+            > /tmp/closed-issues.tsv
+
+          while IFS=$'\t' read -r node_id number title; do
+            [ -n "$node_id" ] || continue
+            echo "Suppression définitive de l'issue #${number} : ${title}"
+
+            gh api graphql \
+              -f query='mutation($issueId: ID!) { deleteIssue(input: {issueId: $issueId}) { clientMutationId } }' \
+              -F issueId="$node_id"
+          done < /tmp/closed-issues.tsv
+
+      - name: Archiver les Pull Requests fermées ou fusionnées
+        if: steps.calendar.outputs.run == 'true' && env.CLEANUP_TOKEN != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ env.CLEANUP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          repo="$GITHUB_REPOSITORY"
+
+          gh api --paginate "repos/${repo}/pulls?state=closed&per_page=100" \
+            --jq '.[] | [.node_id, .number, .title] | @tsv' \
+            > /tmp/closed-prs.tsv
+
+          while IFS=$'\t' read -r node_id number title; do
+            [ -n "$node_id" ] || continue
+            echo "Archivage de la PR #${number} : ${title}"
+
+            # Une PR ne peut pas être supprimée de GitHub. L'archivage la retire
+            # de la vue publique tout en conservant son historique pour l'administrateur.
+            gh api graphql \
+              -f query='mutation($pullRequestId: ID!) { archivePullRequest(input: {pullRequestId: $pullRequestId}) { pullRequest { number } } }' \
+              -F pullRequestId="$node_id" || echo "PR #${number} déjà archivée ou non archivable."
+          done < /tmp/closed-prs.tsv
 
       - name: Supprimer les anciens runs GitHub Actions
         if: steps.calendar.outputs.run == 'true'
