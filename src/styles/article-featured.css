@@ -1,0 +1,33 @@
+/* Images mises en avant : cadre commun à tous les articles, présents et futurs. */
+.article-featured-image {
+  display: block;
+  width: calc(100% + 68px);
+  height: clamp(240px, 30vw, 420px);
+  margin-left: -34px;
+  margin-bottom: 30px;
+  padding: clamp(18px, 2.5vw, 34px);
+  aspect-ratio: auto;
+  object-fit: contain;
+  object-position: center;
+  background: var(--surface-soft);
+}
+
+/* Le placeholder garde exactement le même cadre visuel. */
+.article-featured-placeholder {
+  height: clamp(240px, 30vw, 420px);
+  aspect-ratio: auto;
+}
+
+@media (max-width: 650px) {
+  .article-featured-image {
+    width: calc(100% + 40px);
+    height: clamp(200px, 58vw, 300px);
+    margin-left: -20px;
+    padding: 16px;
+  }
+
+  .article-featured-placeholder {
+    height: clamp(200px, 58vw, 300px);
+    aspect-ratio: auto;
+  }
+}
