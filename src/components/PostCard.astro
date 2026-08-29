@@ -7,8 +7,15 @@ const date = post.data.pubDate.toLocaleDateString('fr-FR', {
   day: '2-digit', month: 'long', year: 'numeric'
 });
 const imageSrc = getPostImage(post, base);
+const searchText = [
+  post.data.title,
+  post.data.description,
+  post.data.category,
+  post.data.author,
+  ...(post.data.tags ?? [])
+].join(' ');
 ---
-<article class:list={["post-card", compact && "post-card-compact"]}>
+<article class:list={["post-card", compact && "post-card-compact"]} data-search={searchText}>
   <a class="post-thumbnail" href={`${base}articles/${post.id}/`} aria-label={post.data.title}>
     <img src={imageSrc} alt="" loading="lazy" />
     <span class="pin-badge" aria-hidden="true">⌁</span>
