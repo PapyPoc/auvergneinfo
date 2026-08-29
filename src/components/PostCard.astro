@@ -1,21 +1,16 @@
 ---
+import { getPostImage } from '../utils/post-image';
+
 const { post, compact = false } = Astro.props;
 const base = import.meta.env.BASE_URL;
 const date = post.data.pubDate.toLocaleDateString('fr-FR', {
   day: '2-digit', month: 'long', year: 'numeric'
 });
-const image = post.data.image;
-const imageSrc = image ? (image.startsWith('http') ? image : `${base}${image.replace(/^\/+/, '')}`) : '';
+const imageSrc = getPostImage(post, base);
 ---
 <article class:list={["post-card", compact && "post-card-compact"]}>
   <a class="post-thumbnail" href={`${base}articles/${post.id}/`} aria-label={post.data.title}>
-    {image ? (
-      <img src={imageSrc} alt="" loading="lazy" />
-    ) : (
-      <span class="post-placeholder" aria-hidden="true">
-        <span>AI</span>
-      </span>
-    )}
+    <img src={imageSrc} alt="" loading="lazy" />
     <span class="pin-badge" aria-hidden="true">⌁</span>
   </a>
   <div class="post-card-body">

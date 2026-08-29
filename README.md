@@ -40,6 +40,16 @@ Le workflow `.github/workflows/publier-article.yml` :
 - ferme l'issue ;
 - le push déclenche ensuite le workflow de déploiement.
 
+### Image utilisée pour les vignettes
+
+La même règle est appliquée aux cartes d'articles, aux suggestions de la page d'accueil et au bandeau Breakings :
+
+1. si le champ **Image principale** est rempli dans le formulaire GitHub, cette image est utilisée ;
+2. sinon, si le **tout premier contenu** de l'article est une image, cette image est utilisée ;
+3. sinon, le site utilise automatiquement `public/uploads/2025/01/pdd.jpg`.
+
+Une image placée plus loin dans l'article ne remplace donc pas automatiquement la vignette.
+
 ## Publier manuellement un article
 
 Créer un fichier dans `src/data/posts/`, par exemple :
@@ -58,6 +68,14 @@ draft: false
 
 Contenu de l'article en Markdown.
 ```
+
+Pour forcer une vignette spécifique, ajouter par exemple :
+
+```yaml
+image: "uploads/2026/08/mon-image.jpg"
+```
+
+Sans champ `image:`, une image placée en première position dans le contenu sera utilisée. Si l'article commence par du texte ou un titre, `pdd.jpg` sera utilisée automatiquement.
 
 Pour préparer un article sans le publier, mettre `draft: true`.
 
