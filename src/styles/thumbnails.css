@@ -1,0 +1,81 @@
+/* Vignettes : conserver le ratio naturel des images et éviter tout recadrage. */
+
+/* Cartes principales : la hauteur suit le ratio réel de l'image. */
+.post-thumbnail {
+  aspect-ratio: auto;
+  min-height: 0;
+  background: var(--surface-soft);
+}
+
+.post-thumbnail img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+  transform: none;
+}
+
+.post-card:hover .post-thumbnail img {
+  transform: none;
+}
+
+/* Suggestions : l'image est réduite proportionnellement dans la zone disponible. */
+.pyml-card {
+  grid-template-columns: minmax(72px, 110px) 1fr;
+}
+
+.pyml-thumb {
+  width: 100%;
+  max-width: 110px;
+  height: auto;
+  aspect-ratio: auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-soft);
+}
+
+.pyml-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 96px;
+  object-fit: contain;
+}
+
+/* Breakings : miniature entière, sans découpe circulaire. */
+.ticker-thumb {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  min-width: 40px;
+  max-width: 72px;
+  height: 40px !important;
+  border-radius: 4px !important;
+  overflow: hidden;
+  background: var(--surface-soft) !important;
+}
+
+.ticker-thumb img {
+  display: block;
+  width: auto !important;
+  max-width: 72px;
+  height: 100% !important;
+  object-fit: contain !important;
+}
+
+@media (max-width: 640px) {
+  .pyml-card {
+    grid-template-columns: minmax(64px, 90px) 1fr;
+  }
+
+  .pyml-thumb {
+    max-width: 90px;
+  }
+
+  .pyml-thumb img {
+    max-height: 82px;
+  }
+}
