@@ -6,6 +6,10 @@ const counts = categories.map((category) => ({
   name: category,
   count: posts.filter((post) => post.data.category === category).length
 }));
+const recentImage = (post) => {
+  const image = post.data.image || 'uploads/2025/01/pdd.jpg';
+  return image.startsWith('http') ? image : `${base}${image.replace(/^\/+/, '')}`;
+};
 ---
 <aside class="sidebar" aria-label="Barre latérale">
   <section class="widget widget-search">
@@ -18,11 +22,13 @@ const counts = categories.map((category) => ({
 
   <section class="widget">
     <h3 class="widget-title">Articles récents</h3>
-    <div class="popular-list">
-      {recent.map((post, index) => (
-        <a class="popular-item" href={`${base}articles/${post.id}/`}>
-          <span class="popular-thumb"><span>{String(index + 1).padStart(2, '0')}</span></span>
-          <span>
+    <div class="popular-list recent-article-list">
+      {recent.map((post) => (
+        <a class="popular-item recent-article-item" href={`${base}articles/${post.id}/`}>
+          <span class="recent-article-thumb">
+            <img src={recentImage(post)} alt="" loading="lazy" />
+          </span>
+          <span class="recent-article-copy">
             <strong>{post.data.title}</strong>
             <small>◷ {post.data.pubDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}</small>
           </span>
