@@ -9,7 +9,8 @@
   aspect-ratio: auto;
   object-fit: contain;
   object-position: center;
-  background: var(--surface-soft);
+  /* Fond fixe pour préserver la lisibilité des PNG transparents dans tous les thèmes. */
+  background: var(--media-backdrop, #20262c);
 }
 
 /* Le placeholder garde exactement le même cadre visuel. */
