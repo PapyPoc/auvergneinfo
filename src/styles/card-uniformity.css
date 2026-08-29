@@ -1,0 +1,46 @@
+/* Uniformiser les cartes de la section "Dernières actualités". */
+.post-grid.bloglo-masonry {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+.post-grid.bloglo-masonry .post-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.post-grid.bloglo-masonry .post-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.post-grid.bloglo-masonry .post-card h2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.post-grid.bloglo-masonry .post-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.post-grid.bloglo-masonry .read-more {
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+@media (max-width: 760px) {
+  .post-grid.bloglo-masonry {
+    grid-auto-rows: auto;
+  }
+
+  .post-grid.bloglo-masonry .post-card {
+    height: auto;
+  }
+}
