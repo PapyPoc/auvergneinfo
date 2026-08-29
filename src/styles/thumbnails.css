@@ -1,16 +1,26 @@
-/* Vignettes : conserver le ratio naturel des images et éviter tout recadrage. */
+/* Vignettes : conserver le ratio naturel des images et éviter toute déformation. */
 
-/* Cartes principales : la hauteur suit le ratio réel de l'image. */
+/*
+ * Cartes principales : zone de hauteur maîtrisée.
+ * L'image est centrée et affichée à 50 % de la largeur disponible,
+ * tout en conservant son ratio naturel.
+ */
 .post-thumbnail {
   aspect-ratio: auto;
+  height: clamp(210px, 20vw, 260px);
   min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--surface-soft);
 }
 
 .post-thumbnail img {
-  width: 100%;
+  display: block;
+  width: 50%;
   height: auto;
-  max-height: none;
+  max-width: 50%;
+  max-height: 90%;
   object-fit: contain;
   transform: none;
 }
@@ -67,6 +77,16 @@
 }
 
 @media (max-width: 640px) {
+  .post-thumbnail {
+    height: 200px;
+  }
+
+  .post-thumbnail img {
+    width: 50%;
+    max-width: 50%;
+    max-height: 90%;
+  }
+
   .pyml-card {
     grid-template-columns: minmax(64px, 90px) 1fr;
   }
