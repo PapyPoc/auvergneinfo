@@ -49,3 +49,91 @@ const categories = [...new Set(posts.map((entry) => entry.data.category))].sort(
     </div>
   </section>
 </BaseLayout>
+
+<script is:inline>
+  (() => {
+    const fallbackCopy = (text) => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.pointerEvents = 'none';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const success = document.execCommand('copy');
+      textarea.remove();
+      return success;
+    };
+
+    const copyText = async (text) => {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      return fallbackCopy(text);
+    };
+
+    const initCodeBlocks = () => {
+      document.querySelectorAll('.prose pre').forEach((pre) => {
+        if (pre.dataset.copyReady === 'true') return;
+        pre.dataset.copyReady = 'true';
+
+        const code = pre.querySelector('code');
+        const languageClass = code
+          ? Array.from(code.classList).find((name) => name.startsWith('language-'))
+          : null;
+        const language = languageClass ? languageClass.replace('language-', '') : 'code';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'code-block-toolbar';
+
+        const languageLabel = document.createElement('span');
+        languageLabel.className = 'code-block-language';
+        languageLabel.textContent = language;
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'code-copy-button';
+        button.setAttribute('aria-label', 'Copier le bloc de code');
+        button.innerHTML = '<span aria-hidden="true">⧉</span><span>Copier</span>';
+
+        const parent = pre.parentNode;
+        if (!parent) return;
+        parent.insertBefore(wrapper, pre);
+        toolbar.append(languageLabel, button);
+        wrapper.append(toolbar, pre);
+
+        button.addEventListener('click', async () => {
+          const text = code?.textContent ?? pre.textContent ?? '';
+          const label = button.querySelector('span:last-child');
+
+          try {
+            const success = await copyText(text);
+            if (!success) throw new Error('copy failed');
+            button.classList.add('is-copied');
+            if (label) label.textContent = 'Copié !';
+            window.setTimeout(() => {
+              button.classList.remove('is-copied');
+              if (label) label.textContent = 'Copier';
+            }, 1800);
+          } catch {
+            if (label) label.textContent = 'Échec';
+            window.setTimeout(() => {
+              if (label) label.textContent = 'Copier';
+            }, 1800);
+          }
+        });
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initCodeBlocks, { once: true });
+    } else {
+      initCodeBlocks();
+    }
+  })();
+</script>
