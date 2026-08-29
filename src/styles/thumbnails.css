@@ -1,16 +1,24 @@
 /* Vignettes : conserver le ratio naturel des images et éviter tout recadrage. */
 
-/* Cartes principales : la hauteur suit le ratio réel de l'image. */
+/*
+ * Cartes principales : même principe que le Breakings.
+ * La zone a une hauteur maîtrisée et l'image est affichée entièrement avec contain.
+ */
 .post-thumbnail {
   aspect-ratio: auto;
+  height: clamp(210px, 20vw, 260px);
   min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--surface-soft);
 }
 
 .post-thumbnail img {
+  display: block;
   width: 100%;
-  height: auto;
-  max-height: none;
+  height: 100%;
+  max-width: 100%;
   object-fit: contain;
   transform: none;
 }
@@ -67,6 +75,10 @@
 }
 
 @media (max-width: 640px) {
+  .post-thumbnail {
+    height: 200px;
+  }
+
   .pyml-card {
     grid-template-columns: minmax(64px, 90px) 1fr;
   }
