@@ -1,0 +1,126 @@
+name: Nettoyage mensuel GitHub
+
+on:
+  schedule:
+    # Mois de 31 jours
+    - cron: '0 3 31 1,3,5,7,8,10,12 *'
+      timezone: 'Europe/Paris'
+    # Mois de 30 jours
+    - cron: '0 3 30 4,6,9,11 *'
+      timezone: 'Europe/Paris'
+    # Février : le contrôle ci-dessous distingue le 28 du 29 en année bissextile
+    - cron: '0 3 28,29 2 *'
+      timezone: 'Europe/Paris'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    name: Nettoyer le dépôt
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Vérifier le dernier jour du mois
+        id: calendar
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          export TZ=Europe/Paris
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Exécution manuelle : nettoyage autorisé."
+            exit 0
+          fi
+
+          if [ "$(date -d tomorrow +%d)" = "01" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "$(date '+%d/%m/%Y %H:%M %Z') : dernier jour du mois."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Ce n'est pas le dernier jour du mois : aucune suppression."
+          fi
+
+      - name: Récupérer le dépôt
+        if: steps.calendar.outputs.run == 'true'
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Supprimer les branches devenues inutiles
+        if: steps.calendar.outputs.run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repo="$GITHUB_REPOSITORY"
+          owner="${repo%%/*}"
+          default_branch="$(gh api "repos/${repo}" --jq '.default_branch')"
+          encoded_default="$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$default_branch")"
+
+          echo "Branche par défaut conservée : $default_branch"
+
+          gh api --paginate "repos/${repo}/branches?per_page=100" --jq '.[].name' | while IFS= read -r branch; do
+            [ -n "$branch" ] || continue
+            [ "$branch" != "$default_branch" ] || continue
+
+            open_prs="$(gh api -X GET "repos/${repo}/pulls" \
+              -f state=open \
+              -f head="${owner}:${branch}" \
+              -f per_page=100 \
+              --jq 'length')"
+
+            if [ "$open_prs" -gt 0 ]; then
+              echo "Conservation de $branch : PR ouverte."
+              continue
+            fi
+
+            merged_prs="$(gh api -X GET "repos/${repo}/pulls" \
+              -f state=closed \
+              -f head="${owner}:${branch}" \
+              -f per_page=100 \
+              --jq '[.[] | select(.merged_at != null)] | length')"
+
+            encoded_branch="$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")"
+            ahead_by="$(gh api "repos/${repo}/compare/${encoded_default}...${encoded_branch}" --jq '.ahead_by' 2>/dev/null || echo 1)"
+
+            if [ "$merged_prs" -gt 0 ] || [ "$ahead_by" -eq 0 ]; then
+              echo "Suppression de la branche obsolète : $branch"
+              git push origin --delete "$branch"
+            else
+              echo "Conservation de $branch : changements non fusionnés détectés."
+            fi
+          done
+
+      - name: Supprimer les anciens runs GitHub Actions
+        if: steps.calendar.outputs.run == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          cutoff="$(date -u -d '1 minute ago' +%s)"
+
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | select(.status == "completed") | [.id, .created_at] | @tsv' \
+            > /tmp/runs.tsv
+
+          while IFS=$'\t' read -r run_id created_at; do
+            [ -n "$run_id" ] || continue
+            [ "$run_id" != "$GITHUB_RUN_ID" ] || continue
+
+            created_epoch="$(date -u -d "$created_at" +%s)"
+            if [ "$created_epoch" -lt "$cutoff" ]; then
+              echo "Suppression du run $run_id ($created_at)"
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" || true
+            fi
+          done < /tmp/runs.tsv
