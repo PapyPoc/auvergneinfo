@@ -23,8 +23,6 @@ jobs:
   cleanup:
     name: Nettoyer le dépôt
     runs-on: ubuntu-latest
-    env:
-      CLEANUP_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
 
     steps:
       - name: Vérifier le dernier jour du mois
@@ -103,18 +101,34 @@ jobs:
             fi
           done
 
-      - name: Signaler l'absence du CLEANUP_TOKEN
-        if: steps.calendar.outputs.run == 'true' && env.CLEANUP_TOKEN == ''
-        shell: bash
-        run: |
-          echo "CLEANUP_TOKEN absent : les issues fermées ne seront pas supprimées et les PR fermées ne seront pas archivées."
-          echo "Le nettoyage des branches et des runs Actions reste actif."
-
-      - name: Supprimer définitivement les issues fermées
-        if: steps.calendar.outputs.run == 'true' && env.CLEANUP_TOKEN != ''
+      - name: Vérifier CLEANUP_TOKEN
+        id: cleanup_auth
+        if: steps.calendar.outputs.run == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ env.CLEANUP_TOKEN }}
+          CLEANUP_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
+        run: |
+          set -u
+
+          if [ -z "${CLEANUP_TOKEN:-}" ]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLEANUP_TOKEN est absent. Le nettoyage Issues/PR sera ignoré."
+            exit 0
+          fi
+
+          if GH_TOKEN="$CLEANUP_TOKEN" gh api "repos/${GITHUB_REPOSITORY}" --jq '.full_name' >/dev/null 2>&1; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+            echo "CLEANUP_TOKEN valide et accès au dépôt confirmé."
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLEANUP_TOKEN est invalide, expiré ou n'a pas accès au dépôt. Le nettoyage Issues/PR sera ignoré."
+          fi
+
+      - name: Supprimer définitivement les issues fermées
+        if: steps.calendar.outputs.run == 'true' && steps.cleanup_auth.outputs.valid == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -128,16 +142,18 @@ jobs:
             [ -n "$node_id" ] || continue
             echo "Suppression définitive de l'issue #${number} : ${title}"
 
-            gh api graphql \
+            if ! gh api graphql \
               -f query='mutation($issueId: ID!) { deleteIssue(input: {issueId: $issueId}) { clientMutationId } }' \
-              -F issueId="$node_id"
+              -F issueId="$node_id"; then
+              echo "::warning::Impossible de supprimer l'issue #${number}. Vérifie les permissions du CLEANUP_TOKEN."
+            fi
           done < /tmp/closed-issues.tsv
 
       - name: Archiver les Pull Requests fermées ou fusionnées
-        if: steps.calendar.outputs.run == 'true' && env.CLEANUP_TOKEN != ''
+        if: steps.calendar.outputs.run == 'true' && steps.cleanup_auth.outputs.valid == 'true'
         shell: bash
         env:
-          GH_TOKEN: ${{ env.CLEANUP_TOKEN }}
+          GH_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -151,15 +167,15 @@ jobs:
             [ -n "$node_id" ] || continue
             echo "Archivage de la PR #${number} : ${title}"
 
-            # Une PR ne peut pas être supprimée de GitHub. L'archivage la retire
-            # de la vue publique tout en conservant son historique pour l'administrateur.
-            gh api graphql \
+            if ! gh api graphql \
               -f query='mutation($pullRequestId: ID!) { archivePullRequest(input: {pullRequestId: $pullRequestId}) { pullRequest { number } } }' \
-              -F pullRequestId="$node_id" || echo "PR #${number} déjà archivée ou non archivable."
+              -F pullRequestId="$node_id"; then
+              echo "::warning::Impossible d'archiver la PR #${number} (déjà archivée ou permissions insuffisantes)."
+            fi
           done < /tmp/closed-prs.tsv
 
       - name: Supprimer les anciens runs GitHub Actions
-        if: steps.calendar.outputs.run == 'true'
+        if: always() && steps.calendar.outputs.run == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
