@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: write
 
 jobs:
   publish:
@@ -78,11 +79,21 @@ jobs:
               content: Buffer.from(markdown, 'utf8').toString('base64')
             });
 
+            // Les commits effectués avec GITHUB_TOKEN ne redéclenchent pas
+            // automatiquement un workflow sur l'événement push. On lance donc
+            // explicitement le workflow de déploiement après publication.
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy.yml',
+              ref: context.payload.repository.default_branch || 'main'
+            });
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              body: `✅ Article créé dans \`${filename}\`. Le déploiement GitHub Pages va démarrer automatiquement.`
+              body: `✅ Article créé dans \`${filename}\`. Le déploiement GitHub Pages a été déclenché.`
             });
 
             await github.rest.issues.update({
