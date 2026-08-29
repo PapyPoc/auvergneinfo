@@ -10,7 +10,7 @@
   object-fit: contain;
   object-position: center;
   /* Fond fixe pour préserver la lisibilité des PNG transparents dans tous les thèmes. */
-  background: var(--media-backdrop, #20262c);
+  background: var(--media-backdrop, #22282e);
 }
 
 /* Les articles importés de WordPress placent généralement les images dans
@@ -45,7 +45,7 @@
   margin-right: auto !important;
   object-fit: contain;
   object-position: center;
-  background: var(--media-backdrop, #20262c);
+  background: var(--media-backdrop, #22282e);
 }
 
 .article-card .prose figure > img,
