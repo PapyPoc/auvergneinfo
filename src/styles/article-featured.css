@@ -13,6 +13,13 @@
   background: var(--media-backdrop, #20262c);
 }
 
+/* Les images placées dans le corps d'un article utilisent le même fond.
+ * Pour une image opaque, ce fond est invisible ; il n'apparaît qu'à travers
+ * les pixels transparents d'un PNG ou d'un WebP avec transparence. */
+.prose img {
+  background: var(--media-backdrop, #20262c);
+}
+
 /* Le placeholder garde exactement le même cadre visuel. */
 .article-featured-placeholder {
   height: clamp(240px, 30vw, 420px);
