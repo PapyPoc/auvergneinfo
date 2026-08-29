@@ -37,7 +37,9 @@ chmod +x install-bunkerweb.sh
 
 <p>On tape la commande:</p>
 
-```bash./install-bunkerweb.sh```
+```bash
+./install-bunkerweb.sh
+```
 
 <figure class="wp-block-image size-full"><img src="../../uploads/2026/01/Capture-decran-2025-12-10-162425.png" alt="" class="wp-image-160"/></figure>
 
