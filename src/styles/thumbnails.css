@@ -1,6 +1,14 @@
 /* Vignettes : conserver le ratio naturel des images et éviter toute déformation. */
 
 /*
+ * Fond volontairement indépendant du thème : les PNG transparents contenant
+ * du blanc restent lisibles en thème clair comme en thème sombre.
+ */
+:root {
+  --media-backdrop: #20262c;
+}
+
+/*
  * Cartes principales : zone de hauteur maîtrisée.
  * L'image est centrée et affichée à 50 % de la largeur disponible,
  * tout en conservant son ratio naturel.
@@ -12,7 +20,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-soft);
+  background: var(--media-backdrop);
 }
 
 .post-thumbnail img {
@@ -43,7 +51,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-soft);
+  background: var(--media-backdrop);
 }
 
 .pyml-thumb img {
@@ -65,7 +73,7 @@
   height: 40px !important;
   border-radius: 4px !important;
   overflow: hidden;
-  background: var(--surface-soft) !important;
+  background: var(--media-backdrop) !important;
 }
 
 .ticker-thumb img {
