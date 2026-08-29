@@ -145,8 +145,9 @@ const tickerEntries = tickerPosts.map((post) => ({
     display: flex;
     width: 100%;
     min-width: 0;
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
     will-change: transform;
+    backface-visibility: hidden;
   }
 
   .ticker-slider .ticker-item {
@@ -239,6 +240,7 @@ const tickerEntries = tickerPosts.map((post) => ({
     const slider = ticker?.querySelector('.ticker-slider');
     const nextButton = ticker?.querySelector('.ticker-next');
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const animationDuration = 900;
     let timer = null;
     let animating = false;
 
@@ -255,20 +257,30 @@ const tickerEntries = tickerPosts.map((post) => ({
       const shift = 100 / visibleCount();
       const reduced = reduceMotion.matches;
       animating = true;
-      slider.style.transition = reduced ? 'none' : 'transform .55s cubic-bezier(.4,0,.2,1)';
-      slider.style.transform = `translateX(-${shift}%)`;
+      slider.style.transition = reduced
+        ? 'none'
+        : `transform ${animationDuration}ms cubic-bezier(.22,.61,.36,1)`;
+      slider.style.transform = `translate3d(-${shift}%, 0, 0)`;
 
+      let finished = false;
       const finish = () => {
+        if (finished) return;
+        finished = true;
         const first = slider.firstElementChild;
         if (first) slider.appendChild(first);
         slider.style.transition = 'none';
-        slider.style.transform = 'translateX(0)';
+        slider.style.transform = 'translate3d(0, 0, 0)';
         void slider.offsetWidth;
         animating = false;
       };
 
-      if (reduced) finish();
-      else window.setTimeout(finish, 560);
+      if (reduced) {
+        finish();
+        return;
+      }
+
+      slider.addEventListener('transitionend', finish, { once: true });
+      window.setTimeout(finish, animationDuration + 120);
     };
 
     const stopTicker = () => {
@@ -281,13 +293,13 @@ const tickerEntries = tickerPosts.map((post) => ({
     const startTicker = () => {
       stopTicker();
       if (!slider || itemCount() < 2 || reduceMotion.matches) return;
-      timer = window.setInterval(advanceTicker, 4200);
+      timer = window.setInterval(advanceTicker, 5000);
     };
 
     nextButton?.addEventListener('click', () => {
       stopTicker();
       advanceTicker();
-      window.setTimeout(startTicker, 700);
+      window.setTimeout(startTicker, animationDuration + 350);
     });
 
     ticker?.addEventListener('pointerenter', stopTicker);
