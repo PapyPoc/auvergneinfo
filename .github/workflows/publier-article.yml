@@ -44,6 +44,24 @@ jobs:
               return normalized.split(/\s+/)[0];
             };
 
+            const normalizeImageReference = (value) => {
+              const normalized = normalizeOptional(value);
+              if (!normalized) return '';
+
+              if (/^https?:\/\/[^\s]+$/i.test(normalized)) return normalized;
+
+              const local = normalized
+                .replace(/^\.\.\/\.\.\/uploads\//, 'uploads/')
+                .replace(/^\.\/uploads\//, 'uploads/')
+                .replace(/^\/uploads\//, 'uploads/');
+
+              if (/^uploads\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]+\.(?:png|jpe?g|gif|webp|svg|avif)$/i.test(local)) {
+                return local;
+              }
+
+              return '';
+            };
+
             const collectImageUrls = (value) => {
               const urls = [];
               const markdownImage = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/gi;
@@ -211,13 +229,16 @@ jobs:
               content = content.split(remoteUrl).join(paths.article);
             }
 
-            let image;
+            let imageCandidate = '';
             if (explicitImage) {
-              image = localized.get(explicitImage)?.frontmatter || explicitImage;
+              imageCandidate = localized.get(explicitImage)?.frontmatter || explicitImage;
             } else if (contentImageBeforeImport) {
-              image = localized.get(contentImageBeforeImport)?.frontmatter || contentImageBeforeImport;
-            } else {
-              image = 'uploads/2025/01/pdd.jpg';
+              imageCandidate = localized.get(contentImageBeforeImport)?.frontmatter || contentImageBeforeImport;
+            }
+
+            const image = normalizeImageReference(imageCandidate) || 'uploads/2025/01/pdd.jpg';
+            if (imageCandidate && image === 'uploads/2025/01/pdd.jpg') {
+              core.warning(`Image principale ignorée car invalide : ${imageCandidate}`);
             }
 
             const markdown = `---\n` +
