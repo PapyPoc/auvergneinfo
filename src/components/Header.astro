@@ -25,11 +25,8 @@ const tickerEntries = tickerPosts.map((post) => {
   </div>
 
   <div class="branding-row">
-    <div class="container branding-inner">
-      <a class="site-logo" href={base} aria-label="AuvergneInfo, accueil">
-        <span>AUVERGNE</span><span class="logo-accent">INFO</span>
-      </a>
-      <div class="header-ad" aria-label="Bannière AuvergneInfo">
+    <div class="container branding-inner branding-banner-only">
+      <a class="header-ad header-ad-full" href={base} aria-label="AuvergneInfo, accueil">
         <img
           src={`${base}uploads/2025/12/A.png`}
           alt="AuvergneInfo"
@@ -37,7 +34,7 @@ const tickerEntries = tickerPosts.map((post) => {
           onerror="this.style.display='none'; this.nextElementSibling.style.display='grid';"
         />
         <span class="header-ad-fallback">AUVERGNEINFO.FR</span>
-      </div>
+      </a>
     </div>
   </div>
 
@@ -102,6 +99,40 @@ const tickerEntries = tickerPosts.map((post) => {
 </header>
 
 <style>
+  .branding-inner.branding-banner-only {
+    min-height: 0;
+    display: flex;
+    justify-content: center;
+    padding-top: 22px;
+    padding-bottom: 22px;
+  }
+
+  .header-ad.header-ad-full {
+    display: block;
+    justify-self: auto;
+    width: min(100%, 1200px);
+    height: auto;
+    max-width: none;
+    overflow: visible;
+    background: transparent;
+    text-decoration: none;
+  }
+
+  .header-ad.header-ad-full img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    object-fit: contain;
+  }
+
+  @media (max-width: 720px) {
+    .branding-inner.branding-banner-only {
+      padding-top: 14px;
+      padding-bottom: 14px;
+    }
+  }
+
   .ticker-shell .ticker-track {
     display: block;
     overflow: hidden;
