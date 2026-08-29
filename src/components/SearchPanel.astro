@@ -1,0 +1,157 @@
+---
+const base = import.meta.env.BASE_URL;
+---
+<div id="header-search-panel" class="header-search-panel" hidden>
+  <form class="header-search-form" action={`${base}articles/`} method="get" role="search">
+    <label class="screen-reader-text" for="header-search-input">Rechercher dans les articles</label>
+    <input
+      id="header-search-input"
+      type="search"
+      name="q"
+      placeholder="Rechercher dans les articles…"
+      autocomplete="off"
+    />
+    <button class="header-search-submit" type="submit">Rechercher</button>
+    <button class="header-search-close" type="button" aria-label="Fermer la recherche">×</button>
+  </form>
+</div>
+
+<style>
+  :global(.navigation-row) {
+    position: relative;
+  }
+
+  .header-search-panel {
+    position: absolute;
+    z-index: 60;
+    top: 100%;
+    right: max(32px, calc((100vw - var(--container)) / 2));
+    width: min(560px, calc(100% - 64px));
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--accent);
+    background: var(--surface);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, .18);
+  }
+
+  .header-search-panel[hidden] {
+    display: none;
+  }
+
+  .header-search-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+  }
+
+  .header-search-form input {
+    min-width: 0;
+    height: 44px;
+    padding: 0 14px;
+    border: 1px solid #cfd6df;
+    background: var(--surface-soft);
+    color: var(--text);
+    outline: none;
+  }
+
+  .header-search-form input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 75, 237, .12);
+  }
+
+  .header-search-submit,
+  .header-search-close {
+    min-height: 44px;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .header-search-submit {
+    padding: 0 18px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .header-search-submit:hover,
+  .header-search-submit:focus-visible {
+    background: var(--accent-hover);
+  }
+
+  .header-search-close {
+    width: 44px;
+    background: var(--surface-soft);
+    color: var(--text);
+    font-size: 2.4rem;
+    line-height: 1;
+  }
+
+  @media (max-width: 650px) {
+    .header-search-panel {
+      right: 12px;
+      left: 12px;
+      width: auto;
+    }
+
+    .header-search-form {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .header-search-submit {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+</style>
+
+<script is:inline>
+  (() => {
+    const panel = document.getElementById('header-search-panel');
+    const navigationRow = document.querySelector('.navigation-row');
+    const trigger = document.querySelector('.header-tools [aria-label="Rechercher"]');
+    const input = document.getElementById('header-search-input');
+    const closeButton = panel?.querySelector('.header-search-close');
+
+    if (!panel || !navigationRow || !trigger) return;
+
+    navigationRow.appendChild(panel);
+    trigger.setAttribute('aria-controls', 'header-search-panel');
+    trigger.setAttribute('aria-expanded', 'false');
+
+    const closeSearch = () => {
+      panel.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+
+    const openSearch = () => {
+      panel.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      window.setTimeout(() => input?.focus(), 0);
+    };
+
+    trigger.addEventListener('click', (event) => {
+      event.preventDefault();
+      if (panel.hidden) openSearch();
+      else closeSearch();
+    });
+
+    closeButton?.addEventListener('click', () => {
+      closeSearch();
+      trigger.focus();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !panel.hidden) {
+        closeSearch();
+        trigger.focus();
+      }
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+      if (panel.hidden) return;
+      if (panel.contains(event.target) || trigger.contains(event.target)) return;
+      closeSearch();
+    });
+  })();
+</script>
