@@ -2,14 +2,14 @@ name: Ajuster la bannière du header
 
 on:
   push:
-    branches: [feature/full-header-banner]
+    branches:
+      - feature/full-header-banner
 
 permissions:
   contents: write
 
 jobs:
   adjust:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Récupérer la branche
@@ -18,8 +18,8 @@ jobs:
           ref: feature/full-header-banner
 
       - name: Modifier le header
-        shell: python
         run: |
+          python - <<'PY'
           from pathlib import Path
 
           path = Path('src/components/Header.astro')
@@ -32,6 +32,7 @@ jobs:
       <div class="header-ad" aria-label="Bannière AuvergneInfo">'''
           new = '''    <div class="container branding-inner branding-banner-only">
       <a class="header-ad header-ad-full" href={base} aria-label="AuvergneInfo, accueil">'''
+
           if old not in text:
               raise SystemExit('Bloc branding attendu introuvable')
           text = text.replace(old, new, 1)
@@ -44,6 +45,7 @@ jobs:
       </a>
     </div>
   </div>'''
+
           if old_close not in text:
               raise SystemExit('Fin du bloc branding introuvable')
           text = text.replace(old_close, new_close, 1)
@@ -85,11 +87,13 @@ jobs:
   }
 
   .ticker-shell .ticker-track {'''
+
           if marker not in text:
               raise SystemExit('Bloc style attendu introuvable')
           text = text.replace(marker, replacement, 1)
 
           path.write_text(text, encoding='utf-8')
+          PY
 
       - name: Installer Node.js
         uses: actions/setup-node@v4
@@ -108,5 +112,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/components/Header.astro
-          git commit -m "Afficher la bannière complète dans le header" || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -m "Afficher la bannière complète dans le header"
           git push
