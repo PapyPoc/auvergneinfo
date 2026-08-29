@@ -1,0 +1,113 @@
+/* Blocs de code des articles */
+.code-block-wrapper {
+  margin: 2.4rem 0;
+  overflow: hidden;
+  border: 1px solid #303846;
+  border-radius: 8px;
+  background: #11161d;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+
+.code-block-toolbar {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px 7px 16px;
+  border-bottom: 1px solid #303846;
+  background: #1b222c;
+  color: #c9d3df;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 1.25rem;
+}
+
+.code-block-language {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #9eabb9;
+}
+
+.code-copy-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid #465263;
+  border-radius: 5px;
+  background: #252e3a;
+  color: #f5f7fa;
+  font-family: inherit;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.code-copy-button:hover,
+.code-copy-button:focus-visible {
+  border-color: #6e7d91;
+  background: #303b49;
+}
+
+.code-copy-button:active {
+  transform: translateY(1px);
+}
+
+.code-copy-button.is-copied {
+  border-color: #48a868;
+  background: #1f6038;
+}
+
+.prose .code-block-wrapper pre {
+  margin: 0;
+  padding: 18px 20px;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  background: #11161d;
+  color: #e6edf3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 1.45rem;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+  scrollbar-color: #59677a #11161d;
+}
+
+.prose .code-block-wrapper pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: inherit;
+}
+
+/* Code court au milieu d'une phrase */
+.prose :not(pre) > code {
+  padding: .15em .4em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: .9em;
+}
+
+@media (max-width: 640px) {
+  .code-block-toolbar {
+    padding-left: 12px;
+  }
+
+  .prose .code-block-wrapper pre {
+    padding: 15px 14px;
+    font-size: 1.3rem;
+  }
+}
