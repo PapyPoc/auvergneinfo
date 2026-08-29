@@ -5,6 +5,7 @@ import '../styles/card-uniformity.css';
 import '../styles/code-blocks.css';
 import '../styles/article-featured.css';
 import Header from '../components/Header.astro';
+import SearchPanel from '../components/SearchPanel.astro';
 import Footer from '../components/Footer.astro';
 
 interface Props {
@@ -47,6 +48,7 @@ const socialImage = image.startsWith('http') ? image : new URL(withBase(image), 
   </head>
   <body>
     <Header />
+    <SearchPanel />
     <main>
       <slot />
     </main>
