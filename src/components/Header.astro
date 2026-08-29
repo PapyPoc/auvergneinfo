@@ -139,6 +139,7 @@ const tickerEntries = tickerPosts.map((post) => ({
   .ticker-shell .ticker-track {
     display: block;
     overflow: hidden;
+    contain: paint;
   }
 
   .ticker-slider {
@@ -148,11 +149,13 @@ const tickerEntries = tickerPosts.map((post) => ({
     transform: translate3d(0, 0, 0);
     will-change: transform;
     backface-visibility: hidden;
+    transform-style: preserve-3d;
   }
 
   .ticker-slider .ticker-item {
     flex: 0 0 calc(100% / var(--ticker-visible, 3));
     width: calc(100% / var(--ticker-visible, 3));
+    backface-visibility: hidden;
   }
 
   .ticker-thumb {
@@ -240,7 +243,7 @@ const tickerEntries = tickerPosts.map((post) => ({
     const slider = ticker?.querySelector('.ticker-slider');
     const nextButton = ticker?.querySelector('.ticker-next');
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const animationDuration = 900;
+    const animationDuration = 1100;
     let timer = null;
     let animating = false;
 
@@ -257,10 +260,6 @@ const tickerEntries = tickerPosts.map((post) => ({
       const shift = 100 / visibleCount();
       const reduced = reduceMotion.matches;
       animating = true;
-      slider.style.transition = reduced
-        ? 'none'
-        : `transform ${animationDuration}ms cubic-bezier(.22,.61,.36,1)`;
-      slider.style.transform = `translate3d(-${shift}%, 0, 0)`;
 
       let finished = false;
       const finish = () => {
@@ -279,8 +278,28 @@ const tickerEntries = tickerPosts.map((post) => ({
         return;
       }
 
-      slider.addEventListener('transitionend', finish, { once: true });
-      window.setTimeout(finish, animationDuration + 120);
+      const onTransitionEnd = (event) => {
+        if (event.target !== slider || event.propertyName !== 'transform') return;
+        slider.removeEventListener('transitionend', onTransitionEnd);
+        finish();
+      };
+
+      slider.style.transition = 'none';
+      slider.style.transform = 'translate3d(0, 0, 0)';
+      void slider.offsetWidth;
+      slider.addEventListener('transitionend', onTransitionEnd);
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          slider.style.transition = `transform ${animationDuration}ms cubic-bezier(.16, 1, .3, 1)`;
+          slider.style.transform = `translate3d(-${shift}%, 0, 0)`;
+        });
+      });
+
+      window.setTimeout(() => {
+        slider.removeEventListener('transitionend', onTransitionEnd);
+        finish();
+      }, animationDuration + 180);
     };
 
     const stopTicker = () => {
@@ -293,13 +312,13 @@ const tickerEntries = tickerPosts.map((post) => ({
     const startTicker = () => {
       stopTicker();
       if (!slider || itemCount() < 2 || reduceMotion.matches) return;
-      timer = window.setInterval(advanceTicker, 5000);
+      timer = window.setInterval(advanceTicker, 5200);
     };
 
     nextButton?.addEventListener('click', () => {
       stopTicker();
       advanceTicker();
-      window.setTimeout(startTicker, animationDuration + 350);
+      window.setTimeout(startTicker, animationDuration + 450);
     });
 
     ticker?.addEventListener('pointerenter', stopTicker);
