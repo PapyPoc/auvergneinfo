@@ -29,11 +29,34 @@ jobs:
 
             const normalizeOptional = (value) => value === '_No response_' ? '' : value.trim();
 
+            const extractImageUrl = (value) => {
+              const normalized = normalizeOptional(value);
+              if (!normalized) return '';
+
+              const markdownImage = normalized.match(/!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/i);
+              if (markdownImage) return markdownImage[1];
+
+              const htmlImage = normalized.match(/<img[^>]+src=["']([^"']+)["']/i);
+              if (htmlImage) return htmlImage[1];
+
+              return normalized.split(/\s+/)[0];
+            };
+
+            const firstImageAtStart = (value) => {
+              const normalized = value.trimStart();
+
+              const markdownImage = normalized.match(/^!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/i);
+              if (markdownImage) return markdownImage[1];
+
+              const htmlImage = normalized.match(/^<img[^>]+src=["']([^"']+)["']/i);
+              return htmlImage ? htmlImage[1] : '';
+            };
+
             const title = issue.title.replace(/^\[ARTICLE\]\s*/, '').trim();
             const description = section('Résumé');
             const category = section('Catégorie');
             const tagsRaw = normalizeOptional(section('Tags'));
-            const image = normalizeOptional(section('Image principale (optionnelle)'));
+            const imageRaw = section('Image principale (optionnelle)');
             const tags = tagsRaw
               .split(',')
               .map((tag) => tag.trim())
@@ -44,6 +67,10 @@ jobs:
               core.setFailed('Le formulaire est incomplet.');
               return;
             }
+
+            const explicitImage = extractImageUrl(imageRaw);
+            const contentImage = firstImageAtStart(content);
+            const image = explicitImage || contentImage || 'uploads/2025/01/pdd.jpg';
 
             const slug = title
               .normalize('NFD')
@@ -57,7 +84,6 @@ jobs:
             const day = now.toISOString().slice(0, 10);
             const filename = `src/data/posts/${day}-${slug}.md`;
             const published = now.toISOString();
-            const imageLine = image ? `image: ${JSON.stringify(image)}\n` : '';
 
             const markdown = `---\n` +
               `title: ${JSON.stringify(title)}\n` +
@@ -66,7 +92,7 @@ jobs:
               `author: ${JSON.stringify(issue.user.login)}\n` +
               `category: ${JSON.stringify(category)}\n` +
               `tags: ${JSON.stringify(tags)}\n` +
-              imageLine +
+              `image: ${JSON.stringify(image)}\n` +
               `featured: false\n` +
               `draft: false\n` +
               `---\n\n${content}\n`;
@@ -93,7 +119,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              body: `✅ Article créé dans \`${filename}\`. Le déploiement GitHub Pages a été déclenché.`
+              body: `✅ Article créé dans \`${filename}\`. Image principale utilisée : \`${image}\`. Le déploiement GitHub Pages a été déclenché.`
             });
 
             await github.rest.issues.update({
