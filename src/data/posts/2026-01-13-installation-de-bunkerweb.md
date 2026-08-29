@@ -5,7 +5,7 @@ pubDate: "2026-01-13T11:58:33+01:00"
 updatedDate: "2026-01-13T13:18:04+01:00"
 author: "poc"
 category: "Tutoriel"
-tags: []
+tags: [waf,reverse proxy]
 featured: true
 draft: false
 image: "uploads/2026/01/bunkerweb_logo.png"
