@@ -12,17 +12,90 @@ const categories = [...new Set(posts.map((post) => post.data.category))].sort();
   <section class="page-title-bar">
     <div class="container">
       <h1>Tous les articles</h1>
-      <p>Actualités, dossiers, tutoriels et informations pratiques.</p>
+      <p>Principes, retours d’expérience et tutoriels autour des systèmes, réseaux et services d’infrastructure.</p>
     </div>
   </section>
   <section class="content-section container">
     <div class="content-with-sidebar">
       <div class="feed-column">
-        <div class="post-grid bloglo-masonry">
+        <p id="article-search-summary" class="article-search-summary" hidden></p>
+        <div class="post-grid bloglo-masonry" id="article-search-results">
           {posts.map((post) => <PostCard post={post} />)}
+        </div>
+        <div id="article-search-empty" class="article-search-empty" hidden>
+          <strong>Aucun article trouvé.</strong>
+          <span>Essayez avec d’autres mots-clés, une catégorie ou un nom de service.</span>
         </div>
       </div>
       <Sidebar posts={posts} categories={categories} />
     </div>
   </section>
 </BaseLayout>
+
+<style>
+  .article-search-summary {
+    margin: 0 0 20px;
+    padding: 12px 16px;
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    color: var(--muted);
+  }
+
+  .article-search-empty {
+    padding: 32px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    text-align: center;
+  }
+
+  .article-search-empty strong,
+  .article-search-empty span {
+    display: block;
+  }
+
+  .article-search-empty strong {
+    margin-bottom: 6px;
+    font-size: 2rem;
+  }
+
+  .article-search-empty span {
+    color: var(--muted);
+  }
+</style>
+
+<script is:inline>
+  (() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = (params.get('q') || '').trim();
+    if (!query) return;
+
+    const normalize = (value) => value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('fr-FR');
+
+    const terms = normalize(query).split(/\s+/).filter(Boolean);
+    const cards = Array.from(document.querySelectorAll('#article-search-results .post-card[data-search]'));
+    let visible = 0;
+
+    cards.forEach((card) => {
+      const haystack = normalize(card.dataset.search || '');
+      const match = terms.every((term) => haystack.includes(term));
+      card.hidden = !match;
+      if (match) visible += 1;
+    });
+
+    document.querySelectorAll('input[type="search"][name="q"]').forEach((input) => {
+      input.value = query;
+    });
+
+    const summary = document.getElementById('article-search-summary');
+    if (summary) {
+      summary.hidden = false;
+      summary.textContent = `${visible} article${visible > 1 ? 's' : ''} trouvé${visible > 1 ? 's' : ''} pour « ${query} »`;
+    }
+
+    const empty = document.getElementById('article-search-empty');
+    if (empty) empty.hidden = visible !== 0;
+  })();
+</script>
