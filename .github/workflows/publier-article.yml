@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Transformer l'Issue en article Markdown
         uses: actions/github-script@v8
+        env:
+          ARTICLE_TOKEN: ${{ github.token }}
         with:
           script: |
             const issue = context.payload.issue;
@@ -42,6 +44,16 @@ jobs:
               return normalized.split(/\s+/)[0];
             };
 
+            const collectImageUrls = (value) => {
+              const urls = [];
+              const markdownImage = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/gi;
+              const htmlImage = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+
+              for (const match of value.matchAll(markdownImage)) urls.push(match[1]);
+              for (const match of value.matchAll(htmlImage)) urls.push(match[1]);
+              return urls;
+            };
+
             const firstImageAtStart = (value) => {
               const normalized = value.trimStart();
 
@@ -50,6 +62,78 @@ jobs:
 
               const htmlImage = normalized.match(/^<img[^>]+src=["']([^"']+)["']/i);
               return htmlImage ? htmlImage[1] : '';
+            };
+
+            const isGithubAttachment = (value) => {
+              try {
+                const url = new URL(value);
+                if (url.protocol !== 'https:') return false;
+                if (url.hostname === 'github.com') {
+                  return url.pathname.startsWith('/user-attachments/assets/');
+                }
+                return [
+                  'user-images.githubusercontent.com',
+                  'private-user-images.githubusercontent.com'
+                ].includes(url.hostname);
+              } catch {
+                return false;
+              }
+            };
+
+            const extensionFromImage = (contentType, buffer) => {
+              const type = (contentType || '').split(';')[0].trim().toLowerCase();
+              const known = {
+                'image/png': 'png',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/gif': 'gif',
+                'image/webp': 'webp',
+                'image/svg+xml': 'svg',
+                'image/avif': 'avif'
+              };
+              if (known[type]) return known[type];
+
+              if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))) return 'png';
+              if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg';
+              if (buffer.length >= 6 && ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'))) return 'gif';
+              if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+              if (buffer.subarray(0, Math.min(buffer.length, 512)).toString('utf8').includes('<svg')) return 'svg';
+
+              throw new Error(`Format d'image non reconnu (${contentType || 'type inconnu'}).`);
+            };
+
+            const downloadImage = async (url) => {
+              const baseHeaders = {
+                'User-Agent': 'AuvergneInfo-GitHub-Actions',
+                'Accept': 'image/*,application/octet-stream;q=0.9,*/*;q=0.1'
+              };
+
+              let response = await fetch(url, {
+                redirect: 'follow',
+                headers: baseHeaders
+              });
+
+              if (!response.ok && process.env.ARTICLE_TOKEN) {
+                response = await fetch(url, {
+                  redirect: 'follow',
+                  headers: {
+                    ...baseHeaders,
+                    'Authorization': `Bearer ${process.env.ARTICLE_TOKEN}`
+                  }
+                });
+              }
+
+              if (!response.ok) {
+                throw new Error(`Téléchargement impossible (${response.status}) : ${url}`);
+              }
+
+              const buffer = Buffer.from(await response.arrayBuffer());
+              if (!buffer.length) throw new Error(`Image vide : ${url}`);
+
+              return {
+                buffer,
+                extension: extensionFromImage(response.headers.get('content-type'), buffer)
+              };
             };
 
             const title = issue.title.replace(/^\[ARTICLE\]\s*/, '').trim();
@@ -61,16 +145,12 @@ jobs:
               .split(',')
               .map((tag) => tag.trim())
               .filter(Boolean);
-            const content = section('Contenu');
+            let content = section('Contenu');
 
             if (!title || !description || !category || !content) {
               core.setFailed('Le formulaire est incomplet.');
               return;
             }
-
-            const explicitImage = extractImageUrl(imageRaw);
-            const contentImage = firstImageAtStart(content);
-            const image = explicitImage || contentImage || 'uploads/2025/01/pdd.jpg';
 
             const slug = title
               .normalize('NFD')
@@ -78,12 +158,67 @@ jobs:
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
               .replace(/^-+|-+$/g, '')
-              .slice(0, 80);
+              .slice(0, 80) || `article-${issue.number}`;
 
             const now = new Date();
             const day = now.toISOString().slice(0, 10);
+            const year = day.slice(0, 4);
+            const month = day.slice(5, 7);
+            const uploadDirectory = `public/uploads/${year}/${month}`;
+            const publicDirectory = `uploads/${year}/${month}`;
+            const articleDirectory = `../../uploads/${year}/${month}`;
             const filename = `src/data/posts/${day}-${slug}.md`;
             const published = now.toISOString();
+
+            const explicitImage = extractImageUrl(imageRaw);
+            const contentImageBeforeImport = firstImageAtStart(content);
+            const contentImages = collectImageUrls(content);
+            const attachmentUrls = [...new Set(
+              [explicitImage, ...contentImages]
+                .filter(Boolean)
+                .filter(isGithubAttachment)
+            )];
+
+            const localized = new Map();
+            let imageNumber = 0;
+
+            for (const remoteUrl of attachmentUrls) {
+              imageNumber += 1;
+              core.info(`Import de l'image ${imageNumber}/${attachmentUrls.length} : ${remoteUrl}`);
+
+              const { buffer, extension } = await downloadImage(remoteUrl);
+              const shortNumber = String(imageNumber).padStart(2, '0');
+              const mediaName = `${slug}-${shortNumber}.${extension}`;
+              const repositoryPath = `${uploadDirectory}/${mediaName}`;
+              const frontmatterPath = `${publicDirectory}/${mediaName}`;
+              const articlePath = `${articleDirectory}/${mediaName}`;
+
+              await github.rest.repos.createOrUpdateFileContents({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: repositoryPath,
+                message: `media: ${title} (${shortNumber})`,
+                content: buffer.toString('base64')
+              });
+
+              localized.set(remoteUrl, {
+                frontmatter: frontmatterPath,
+                article: articlePath
+              });
+            }
+
+            for (const [remoteUrl, paths] of localized.entries()) {
+              content = content.split(remoteUrl).join(paths.article);
+            }
+
+            let image;
+            if (explicitImage) {
+              image = localized.get(explicitImage)?.frontmatter || explicitImage;
+            } else if (contentImageBeforeImport) {
+              image = localized.get(contentImageBeforeImport)?.frontmatter || contentImageBeforeImport;
+            } else {
+              image = 'uploads/2025/01/pdd.jpg';
+            }
 
             const markdown = `---\n` +
               `title: ${JSON.stringify(title)}\n` +
@@ -115,11 +250,15 @@ jobs:
               ref: context.payload.repository.default_branch || 'main'
             });
 
+            const importedMessage = localized.size > 0
+              ? `${localized.size} image(s) copiée(s) dans \`${uploadDirectory}/\`.`
+              : 'Aucune pièce jointe GitHub à copier.';
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              body: `✅ Article créé dans \`${filename}\`. Image principale utilisée : \`${image}\`. Le déploiement GitHub Pages a été déclenché.`
+              body: `✅ Article créé dans \`${filename}\`. ${importedMessage} Image principale utilisée : \`${image}\`. Le déploiement GitHub Pages a été déclenché.`
             });
 
             await github.rest.issues.update({
