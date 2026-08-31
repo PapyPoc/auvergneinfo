@@ -29,7 +29,7 @@ fail() {
 : "${PROXMOX_TOKEN_ID:?Secret PROXMOX_TOKEN_ID absent}"
 : "${PROXMOX_TOKEN_SECRET:?Secret PROXMOX_TOKEN_SECRET absent}"
 
-for cmd in curl python3 ssh scp ssh-keygen tar; do
+for cmd in curl python3 ssh ssh-keygen tar; do
   command -v "$cmd" >/dev/null || fail "$cmd est requis sur runner-git."
 done
 
@@ -346,9 +346,13 @@ systemctl reload nginx || systemctl restart nginx
 rm -f /tmp/auvergneinfo-site.tar.gz /tmp/auvergneinfo.conf /tmp/auvergneinfo-deploy.sh
 REMOTE_EOF
 
-  scp "${SSH_OPTS[@]}" "$SITE_ARCHIVE" "${CI_USER}@${EXPECTED_IP}:/tmp/auvergneinfo-site.tar.gz"
-  scp "${SSH_OPTS[@]}" deploy/nginx/auvergneinfo.conf "${CI_USER}@${EXPECTED_IP}:/tmp/auvergneinfo.conf"
-  scp "${SSH_OPTS[@]}" "$REMOTE_SCRIPT" "${CI_USER}@${EXPECTED_IP}:/tmp/auvergneinfo-deploy.sh"
+  echo "Transfert du site via SSH (sans SCP/SFTP)..."
+  ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" \
+    "umask 077; cat > /tmp/auvergneinfo-site.tar.gz" < "$SITE_ARCHIVE"
+  ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" \
+    "umask 077; cat > /tmp/auvergneinfo.conf" < deploy/nginx/auvergneinfo.conf
+  ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" \
+    "umask 077; cat > /tmp/auvergneinfo-deploy.sh" < "$REMOTE_SCRIPT"
 
   if [ "$SUDO_MODE" = "nopasswd" ]; then
     ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" \
