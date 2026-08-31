@@ -1,57 +1,14 @@
-name: Déployer AuvergneInfo
+name: GitHub Pages désactivé
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: [self-hosted, linux, x64, auvergneinfo]
-    steps:
-      - name: Récupérer le dépôt
-        uses: actions/checkout@v7
-
-      - name: Installer Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          package-manager-cache: false
-
-      - name: Installer les dépendances
-        run: npm install
-
-      - name: Configurer GitHub Pages
-        id: pages
-        uses: actions/configure-pages@v5
-
-      - name: Construire le site
-        run: npm run build
-        env:
-          PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
-          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
-
-      - name: Préparer l'artefact Pages
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: ./dist
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    needs: build
+  disabled:
     runs-on: ubuntu-latest
     steps:
-      - name: Publier sur GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: GitHub Pages désactivé
+        run: echo "GitHub Pages n'est plus utilisé. Le site est déployé sur la VM Nginx via deploy-proxmox-vm.yml."
