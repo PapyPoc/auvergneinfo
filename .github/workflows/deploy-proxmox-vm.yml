@@ -24,7 +24,7 @@ on:
         default: "0"
         type: string
       start_vm:
-        description: "Démarrer et post-configurer la VM par SSH"
+        description: "Démarrer la VM après configuration Cloud-Init"
         required: true
         default: true
         type: boolean
@@ -38,26 +38,25 @@ concurrency:
 
 jobs:
   deploy:
-    name: Cloner et configurer Debian 13 sur Proxmox
+    name: Cloner et configurer Debian 13 Cloud-Init sur Proxmox
     runs-on: [self-hosted, linux, x64, auvergneinfo]
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     env:
       PROXMOX_HOST: "10.0.0.253"
       PROXMOX_PORT: "8006"
       TEMPLATE_VMID: "200"
+      TEMPLATE_NAME: "Debian13-cloudinit"
       STORAGE: "local-btrfs"
       BRIDGE: "vmbr0"
       VMID_MIN: "300"
       VMID_MAX: "304"
-      DHCP_IP_FIRST: "100"
-      DHCP_IP_LAST: "150"
       STATIC_IP_FIRST: "151"
       STATIC_IP_LAST: "155"
       NETWORK_CIDR: "24"
       NETWORK_GATEWAY: "10.0.0.254"
       NETWORK_DNS: "10.0.0.254"
-      SSH_PORT: "22"
+      CI_USER: "poc"
 
     steps:
       - name: Vérifier les prérequis
@@ -65,10 +64,7 @@ jobs:
         env:
           PROXMOX_TOKEN_ID: ${{ secrets.PROXMOX_TOKEN_ID }}
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
-          VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
-          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
-          START_VM: ${{ inputs.start_vm }}
+          VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}
         run: |
           set -euo pipefail
 
@@ -79,40 +75,29 @@ jobs:
 
           command -v curl >/dev/null || fail "curl est requis sur runner-git."
           command -v python3 >/dev/null || fail "python3 est requis sur runner-git."
-          command -v ssh >/dev/null || fail "openssh-client est requis sur runner-git."
-          command -v ssh-keygen >/dev/null || fail "ssh-keygen est requis sur runner-git."
-          command -v ip >/dev/null || fail "iproute2 est requis sur runner-git."
-          command -v ping >/dev/null || fail "iputils-ping est requis sur runner-git."
 
           [ -n "${PROXMOX_TOKEN_ID:-}" ] || fail "Secret PROXMOX_TOKEN_ID absent."
           [ -n "${PROXMOX_TOKEN_SECRET:-}" ] || fail "Secret PROXMOX_TOKEN_SECRET absent."
 
-          if [ "$START_VM" = "true" ]; then
-            [ -n "${VM_SSH_USER:-}" ] || fail "Secret VM_SSH_USER absent."
-            [ -n "${VM_SSH_PRIVATE_KEY:-}" ] || fail "Secret VM_SSH_PRIVATE_KEY absent."
-            [ -n "${VM_SUDO_PASSWORD:-}" ] || fail "Secret VM_SUDO_PASSWORD absent."
-
-            KEY_TEST_FILE="$(mktemp)"
-            trap 'rm -f "$KEY_TEST_FILE"' EXIT
-            printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_TEST_FILE"
-            chmod 600 "$KEY_TEST_FILE"
-
-            if ! SSH_KEY_ERROR="$(ssh-keygen -y -P '' -f "$KEY_TEST_FILE" 2>&1 >/dev/null)"; then
-              if printf '%s' "$SSH_KEY_ERROR" | grep -qiE 'passphrase|incorrect passphrase'; then
-                fail "VM_SSH_PRIVATE_KEY est protégée par une passphrase. Utilise une clé dédiée sans passphrase pour l'automatisation, ou ajoute une gestion de passphrase au workflow."
-              fi
-              fail "VM_SSH_PRIVATE_KEY n'est pas une clé privée SSH valide. Vérifie que le secret contient le fichier privé complet avec ses retours à la ligne. Détail : ${SSH_KEY_ERROR:-format invalide}"
-            fi
-
-            echo "Clé privée SSH valide."
+          if [ -n "${VM_SSH_PUBLIC_KEY:-}" ]; then
+            command -v ssh-keygen >/dev/null || fail "ssh-keygen est requis pour valider VM_SSH_PUBLIC_KEY."
+            KEY_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_FILE"' EXIT
+            printf '%s\n' "$VM_SSH_PUBLIC_KEY" | tr -d '\r' > "$KEY_FILE"
+            ssh-keygen -l -f "$KEY_FILE" >/dev/null 2>&1 \
+              || fail "VM_SSH_PUBLIC_KEY n'est pas une clé publique SSH valide."
+            echo "Clé publique SSH Cloud-Init valide."
+          else
+            echo "VM_SSH_PUBLIC_KEY absent : la clé SSH déjà configurée dans le template sera conservée."
           fi
 
-      - name: Créer la VM Proxmox
+      - name: Créer et configurer la VM Cloud-Init
         id: create_vm
         shell: bash
         env:
           PROXMOX_TOKEN_ID: ${{ secrets.PROXMOX_TOKEN_ID }}
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
+          VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}
           VM_HOSTNAME: ${{ inputs.hostname }}
           CORES: ${{ inputs.cores }}
           MEMORY_MB: ${{ inputs.memory_mb }}
@@ -128,13 +113,18 @@ jobs:
 
           PROXMOX_TOKEN_ID="$(printf '%s' "${PROXMOX_TOKEN_ID:-}" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
           PROXMOX_TOKEN_SECRET="$(printf '%s' "${PROXMOX_TOKEN_SECRET:-}" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
+          VM_SSH_PUBLIC_KEY="$(printf '%s' "${VM_SSH_PUBLIC_KEY:-}" | tr -d '\r' | head -n1)"
 
           [[ "$PROXMOX_TOKEN_ID" =~ ^[^[:space:]]+@[^[:space:]!]+![^[:space:]]+$ ]] \
             || fail "PROXMOX_TOKEN_ID invalide. Format attendu : utilisateur@realm!token."
-          [[ "$VM_HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$ ]] || fail "Nom de VM invalide : $VM_HOSTNAME"
-          [[ "$CORES" =~ ^[0-9]+$ ]] && (( CORES >= 1 && CORES <= 64 )) || fail "Nombre de vCPU invalide."
-          [[ "$MEMORY_MB" =~ ^[0-9]+$ ]] && (( MEMORY_MB >= 512 )) || fail "Mémoire invalide (minimum 512 Mo)."
-          [[ "$DISK_GROW_GB" =~ ^[0-9]+$ ]] || fail "disk_grow_gb doit être un entier positif ou 0."
+          [[ "$VM_HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$ ]] \
+            || fail "Nom de VM invalide : $VM_HOSTNAME"
+          [[ "$CORES" =~ ^[0-9]+$ ]] && (( CORES >= 1 && CORES <= 64 )) \
+            || fail "Nombre de vCPU invalide."
+          [[ "$MEMORY_MB" =~ ^[0-9]+$ ]] && (( MEMORY_MB >= 512 )) \
+            || fail "Mémoire invalide (minimum 512 Mo)."
+          [[ "$DISK_GROW_GB" =~ ^[0-9]+$ ]] \
+            || fail "disk_grow_gb doit être un entier positif ou 0."
 
           API="https://${PROXMOX_HOST}:${PROXMOX_PORT}/api2/json"
           AUTH_HEADER="Authorization: PVEAPIToken=${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
@@ -143,11 +133,17 @@ jobs:
             local method="$1"
             local path="$2"
             shift 2
+
             local body_file http_code body
             body_file="$(mktemp)"
 
-            if ! http_code="$(curl -ksS -o "$body_file" -w '%{http_code}' \
-              -X "$method" -H "$AUTH_HEADER" "$@" "${API}${path}")"; then
+            if ! http_code="$(curl -ksS \
+              -o "$body_file" \
+              -w '%{http_code}' \
+              -X "$method" \
+              -H "$AUTH_HEADER" \
+              "$@" \
+              "${API}${path}")"; then
               rm -f "$body_file"
               fail "Impossible de joindre l'API Proxmox ${PROXMOX_HOST}:${PROXMOX_PORT}."
             fi
@@ -159,6 +155,7 @@ jobs:
               [ -n "$body" ] || body="aucun détail retourné"
               fail "API Proxmox ${method} ${path} : HTTP ${http_code} — ${body}"
             fi
+
             printf '%s' "$body"
           }
 
@@ -175,11 +172,15 @@ jobs:
           }
 
           wait_task() {
-            local node="$1" upid="$2" encoded response status exitstatus
+            local node="$1"
+            local upid="$2"
+            local encoded response status exitstatus
             encoded="$(url_encode "$upid")"
+
             for _ in $(seq 1 300); do
               response="$(api_get "/nodes/${node}/tasks/${encoded}/status")"
               status="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("status", ""))')"
+
               if [ "$status" = "stopped" ]; then
                 exitstatus="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("exitstatus", ""))')"
                 [ "$exitstatus" = "OK" ] || fail "Tâche Proxmox échouée : ${exitstatus:-inconnu}"
@@ -187,6 +188,7 @@ jobs:
               fi
               sleep 2
             done
+
             fail "Timeout en attente de la tâche Proxmox."
           }
 
@@ -202,80 +204,102 @@ jobs:
                   print(item.get("node", ""))
                   break
           ' "$TEMPLATE_VMID")"
+
           [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable ou non visible avec ce token."
-          echo "Template ${TEMPLATE_VMID} détecté sur le nœud : $node"
+          echo "Template ${TEMPLATE_VMID} détecté sur le nœud : ${node}"
+
+          template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
+
+          template_check="$(printf '%s' "$template_config" | python3 -c '
+          import json,sys
+          expected=sys.argv[1]
+          data=json.load(sys.stdin).get("data", {})
+          is_template=int(data.get("template", 0)) == 1
+          name=str(data.get("name", ""))
+          has_cloudinit=any(isinstance(v, str) and "cloudinit" in v.lower() for v in data.values())
+          print("ok" if is_template and name == expected and has_cloudinit else f"template={is_template};name={name};cloudinit={has_cloudinit}")
+          ' "$TEMPLATE_NAME")"
+
+          [ "$template_check" = "ok" ] \
+            || fail "Le VMID ${TEMPLATE_VMID} n'est pas le template Cloud-Init attendu ${TEMPLATE_NAME} (${template_check})."
+
+          echo "Template Cloud-Init ${TEMPLATE_NAME} validé."
 
           VMID="$(printf '%s' "$cluster_resources" | python3 -c '
           import json,sys
-          minimum=int(sys.argv[1]); maximum=int(sys.argv[2])
+          minimum=int(sys.argv[1])
+          maximum=int(sys.argv[2])
           used={int(x.get("vmid", -1)) for x in json.load(sys.stdin).get("data", [])}
           for vmid in range(minimum, maximum + 1):
               if vmid not in used:
-                  print(vmid); break
+                  print(vmid)
+                  break
           ' "$VMID_MIN" "$VMID_MAX")"
+
           [ -n "$VMID" ] || fail "Pool VMID saturé : tous les VMID ${VMID_MIN}-${VMID_MAX} sont déjà utilisés."
 
           EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
+          (( STATIC_IP_FIRST + VMID - VMID_MIN <= STATIC_IP_LAST )) \
+            || fail "Aucune IP statique disponible pour le VMID ${VMID}."
+
           echo "VMID sélectionné : ${VMID}"
-          echo "IP statique cible : ${EXPECTED_IP}"
+          echo "IP Cloud-Init : ${EXPECTED_IP}/${NETWORK_CIDR}"
 
           api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null
           api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null
 
-          template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
-          is_template="$(printf '%s' "$template_config" | python3 -c '
-          import json,sys
-          print("yes" if int(json.load(sys.stdin).get("data", {}).get("template", 0)) == 1 else "no")
-          ')"
-          [ "$is_template" = "yes" ] || fail "Le VMID ${TEMPLATE_VMID} n'est pas marqué comme template Proxmox."
-
-          echo "Clonage complet de ${TEMPLATE_VMID} vers VMID ${VMID}..."
+          echo "Clonage complet de ${TEMPLATE_VMID} (${TEMPLATE_NAME}) vers VMID ${VMID}..."
           clone_response="$(api_post "/nodes/${node}/qemu/${TEMPLATE_VMID}/clone" \
             --data-urlencode "newid=${VMID}" \
             --data-urlencode "name=${VM_HOSTNAME}" \
             --data-urlencode "full=1" \
             --data-urlencode "storage=${STORAGE}")"
+
           clone_upid="$(printf '%s' "$clone_response" | json_data)"
           [ -n "$clone_upid" ] || fail "Proxmox n'a pas retourné de tâche de clonage."
           wait_task "$node" "$clone_upid"
           echo "Clonage terminé."
 
-          echo "Configuration matérielle de la VM..."
-          api_put "/nodes/${node}/qemu/${VMID}/config" \
-            --data-urlencode "cores=${CORES}" \
-            --data-urlencode "memory=${MEMORY_MB}" \
-            --data-urlencode "net0=virtio,bridge=${BRIDGE}" \
-            --data-urlencode "onboot=1" >/dev/null
+          echo "Configuration matérielle et Cloud-Init..."
+
+          CONFIG_ARGS=(
+            --data-urlencode "cores=${CORES}"
+            --data-urlencode "memory=${MEMORY_MB}"
+            --data-urlencode "net0=virtio,bridge=${BRIDGE}"
+            --data-urlencode "onboot=1"
+            --data-urlencode "ciuser=${CI_USER}"
+            --data-urlencode "ipconfig0=ip=${EXPECTED_IP}/${NETWORK_CIDR},gw=${NETWORK_GATEWAY}"
+            --data-urlencode "nameserver=${NETWORK_DNS}"
+          )
+
+          if [ -n "$VM_SSH_PUBLIC_KEY" ]; then
+            CONFIG_ARGS+=(--data-urlencode "sshkeys=${VM_SSH_PUBLIC_KEY}")
+          fi
+
+          api_put "/nodes/${node}/qemu/${VMID}/config" "${CONFIG_ARGS[@]}" >/dev/null
 
           if (( DISK_GROW_GB > 0 )); then
             vm_config="$(api_get "/nodes/${node}/qemu/${VMID}/config")"
             boot_disk="$(printf '%s' "$vm_config" | python3 -c '
           import json,sys
           data=json.load(sys.stdin).get("data", {})
-          for key in ["scsi0","virtio0","sata0","ide0"]:
+          for key in ["scsi0", "virtio0", "sata0", "ide0"]:
               value=data.get(key, "")
-              if isinstance(value, str) and value and "media=cdrom" not in value.lower():
-                  print(key); break
+              if isinstance(value, str) and value and "media=cdrom" not in value.lower() and "cloudinit" not in value.lower():
+                  print(key)
+                  break
           ')"
+
             [ -n "$boot_disk" ] || fail "Impossible de déterminer le disque système à agrandir."
+            echo "Agrandissement de ${boot_disk} de +${DISK_GROW_GB}G..."
             api_put "/nodes/${node}/qemu/${VMID}/resize" \
               --data-urlencode "disk=${boot_disk}" \
               --data-urlencode "size=+${DISK_GROW_GB}G" >/dev/null
           fi
 
-          vm_config="$(api_get "/nodes/${node}/qemu/${VMID}/config")"
-          VM_MAC="$(printf '%s' "$vm_config" | python3 -c '
-          import json,re,sys
-          net0=json.load(sys.stdin).get("data", {}).get("net0", "")
-          m=re.search(r"(?:=|^)([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})(?:,|$)", net0)
-          print(m.group(1).lower() if m else "")
-          ')"
-          [ -n "$VM_MAC" ] || fail "Impossible de récupérer l'adresse MAC de la nouvelle VM."
-          echo "MAC de la VM : ${VM_MAC}"
-
           VM_STATUS="stopped"
           if [ "$START_VM" = "true" ]; then
-            echo "Démarrage de la VM ${VMID}..."
+            echo "Démarrage de la VM ${VMID} avec Cloud-Init..."
             start_response="$(api_post "/nodes/${node}/qemu/${VMID}/status/start")"
             start_upid="$(printf '%s' "$start_response" | json_data)"
             [ -n "$start_upid" ] || fail "Proxmox n'a pas retourné de tâche de démarrage."
@@ -287,220 +311,8 @@ jobs:
             echo "vmid=${VMID}"
             echo "node=${node}"
             echo "expected_ip=${EXPECTED_IP}"
-            echo "vm_mac=${VM_MAC}"
             echo "vm_status=${VM_STATUS}"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Post-configurer Debian par SSH
-        id: ssh_config
-        if: ${{ inputs.start_vm == true }}
-        shell: bash
-        env:
-          VMID: ${{ steps.create_vm.outputs.vmid }}
-          TARGET_IP: ${{ steps.create_vm.outputs.expected_ip }}
-          VM_MAC: ${{ steps.create_vm.outputs.vm_mac }}
-          VM_HOSTNAME: ${{ inputs.hostname }}
-          VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
-          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
-        run: |
-          set -euo pipefail
-
-          fail() {
-            echo "::error::$*" >&2
-            exit 1
-          }
-
-          SSH_KEY_FILE="$(mktemp)"
-          REMOTE_SCRIPT_FILE="$(mktemp)"
-          trap 'rm -f "$SSH_KEY_FILE" "$REMOTE_SCRIPT_FILE"' EXIT
-
-          printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
-          chmod 600 "$SSH_KEY_FILE"
-
-          SSH_OPTS=(
-            -i "$SSH_KEY_FILE"
-            -p "$SSH_PORT"
-            -o BatchMode=yes
-            -o ConnectTimeout=5
-            -o ConnectionAttempts=1
-            -o StrictHostKeyChecking=no
-            -o UserKnownHostsFile=/dev/null
-            -o LogLevel=ERROR
-          )
-
-          VM_MAC="$(printf '%s' "$VM_MAC" | tr '[:upper:]' '[:lower:]')"
-          DHCP_IP=""
-
-          find_ip_by_mac() {
-            local found=""
-
-            found="$(ip neigh show | awk -v mac="$VM_MAC" '
-              tolower($0) ~ tolower(mac) { print $1; exit }
-            ')"
-
-            if [ -z "$found" ] && [ -r /proc/net/arp ]; then
-              found="$(awk -v mac="$VM_MAC" '
-                NR > 1 && tolower($4) == tolower(mac) { print $1; exit }
-              ' /proc/net/arp)"
-            fi
-
-            case "$found" in
-              10.0.0.*)
-                local octet="${found##*.}"
-                if [[ "$octet" =~ ^[0-9]+$ ]] && \
-                   (( octet >= DHCP_IP_FIRST && octet <= DHCP_IP_LAST )); then
-                  printf '%s' "$found"
-                fi
-                ;;
-            esac
-          }
-
-          echo "Recherche réseau de la VM ${VMID} par sa MAC ${VM_MAC}..."
-
-          for attempt in $(seq 1 60); do
-            for octet in $(seq "$DHCP_IP_FIRST" "$DHCP_IP_LAST"); do
-              ping -c 1 -W 1 "10.0.0.${octet}" >/dev/null 2>&1 &
-            done
-            wait || true
-
-            DHCP_IP="$(find_ip_by_mac)"
-            if [ -n "$DHCP_IP" ]; then
-              break
-            fi
-
-            echo "MAC non trouvée dans la table réseau (tentative ${attempt}/60)."
-            sleep 5
-          done
-
-          [ -n "$DHCP_IP" ] || fail "Impossible d'associer la MAC ${VM_MAC} à une IP du pool DHCP 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST}."
-
-          echo "VM détectée par MAC : ${VM_MAC} -> ${DHCP_IP}"
-          echo "IP finale prévue : ${TARGET_IP}"
-
-          echo "Test de la connexion SSH ${VM_SSH_USER}@${DHCP_IP}:${SSH_PORT}..."
-          SSH_TEST_OUTPUT=""
-          if ! SSH_TEST_OUTPUT="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" "printf SSH_OK" 2>&1)"; then
-            fail "La VM est bien détectée en ${DHCP_IP}, mais SSH échoue : ${SSH_TEST_OUTPUT}"
-          fi
-          [ "$SSH_TEST_OUTPUT" = "SSH_OK" ] || fail "Réponse SSH inattendue depuis ${DHCP_IP}: ${SSH_TEST_OUTPUT}"
-          echo "Connexion SSH par clé réussie."
-
-          echo "Vérification de l'authentification sudo..."
-          if ! printf '%s\n' "$VM_SUDO_PASSWORD" | \
-            ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
-              "sudo -S -k -p '' true" >/dev/null 2>&1; then
-            fail "Le mot de passe sudo du secret VM_SUDO_PASSWORD est incorrect, ou le compte ${VM_SSH_USER} n'est pas autorisé à utiliser sudo."
-          fi
-          echo "Authentification sudo réussie."
-
-          cat > "$REMOTE_SCRIPT_FILE" <<'REMOTE_SCRIPT'
-          set -euo pipefail
-
-          NEW_HOSTNAME="$1"
-          NEW_IP="$2"
-          PREFIX="$3"
-          GATEWAY="$4"
-          DNS="$5"
-
-          IFACE="$(ip -4 route show default | awk '{print $5; exit}')"
-          [ -n "$IFACE" ] || { echo "Interface réseau principale introuvable." >&2; exit 1; }
-
-          TIMESTAMP="$(date +%Y%m%d%H%M%S)"
-          cp -a /etc/hostname "/etc/hostname.before-github-actions-${TIMESTAMP}" 2>/dev/null || true
-          cp -a /etc/hosts "/etc/hosts.before-github-actions-${TIMESTAMP}" 2>/dev/null || true
-
-          printf '%s\n' "$NEW_HOSTNAME" > /etc/hostname
-          hostnamectl set-hostname "$NEW_HOSTNAME"
-
-          if grep -qE '^127\.0\.1\.1[[:space:]]+' /etc/hosts; then
-            sed -Ei "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${NEW_HOSTNAME}/" /etc/hosts
-          else
-            printf '127.0.1.1\t%s\n' "$NEW_HOSTNAME" >> /etc/hosts
-          fi
-
-          BACKEND=""
-
-          if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
-            BACKEND="NetworkManager"
-            CON_UUID="$(nmcli -t -f UUID,DEVICE connection show --active | awk -F: -v dev="$IFACE" '$2 == dev {print $1; exit}')"
-            [ -n "$CON_UUID" ] || { echo "Connexion NetworkManager introuvable pour ${IFACE}." >&2; exit 1; }
-            nmcli connection modify "$CON_UUID" \
-              ipv4.method manual \
-              ipv4.addresses "${NEW_IP}/${PREFIX}" \
-              ipv4.gateway "$GATEWAY" \
-              ipv4.dns "$DNS"
-
-          elif systemctl is-active --quiet systemd-networkd; then
-            BACKEND="systemd-networkd"
-            mkdir -p /etc/systemd/network
-            cat > /etc/systemd/network/05-web-static.network <<EOF
-          [Match]
-          Name=${IFACE}
-
-          [Network]
-          DHCP=no
-          Address=${NEW_IP}/${PREFIX}
-          Gateway=${GATEWAY}
-          DNS=${DNS}
-          EOF
-
-          elif [ -f /etc/network/interfaces ]; then
-            BACKEND="ifupdown"
-            cp -a /etc/network/interfaces "/etc/network/interfaces.before-github-actions-${TIMESTAMP}"
-            cat > /etc/network/interfaces <<EOF
-          auto lo
-          iface lo inet loopback
-
-          source /etc/network/interfaces.d/*
-
-          allow-hotplug ${IFACE}
-          iface ${IFACE} inet static
-              address ${NEW_IP}/${PREFIX}
-              gateway ${GATEWAY}
-              dns-nameservers ${DNS}
-          EOF
-
-          else
-            echo "Gestionnaire réseau non reconnu (NetworkManager, systemd-networkd ou ifupdown attendu)." >&2
-            exit 1
-          fi
-
-          if [ ! -L /etc/resolv.conf ]; then
-            printf 'nameserver %s\n' "$DNS" > /etc/resolv.conf
-          fi
-
-          printf 'POSTCONFIG_OK backend=%s iface=%s hostname=%s\n' "$BACKEND" "$IFACE" "$NEW_HOSTNAME"
-          REMOTE_SCRIPT
-
-          {
-            printf '%s\n' "$VM_SUDO_PASSWORD"
-            cat "$REMOTE_SCRIPT_FILE"
-          } | ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
-            "sudo -S -k -p '' bash -s -- '$VM_HOSTNAME' '$TARGET_IP' '$NETWORK_CIDR' '$NETWORK_GATEWAY' '$NETWORK_DNS'"
-
-          echo "Configuration écrite. Redémarrage de Debian..."
-          printf '%s\n' "$VM_SUDO_PASSWORD" | \
-            ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
-              "sudo -S -k -p '' systemctl reboot" >/dev/null 2>&1 || true
-
-          echo "Attente de SSH sur ${TARGET_IP}..."
-          READY="false"
-          for attempt in $(seq 1 60); do
-            if ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${TARGET_IP}" "printf READY" 2>/dev/null | grep -q READY; then
-              READY="true"
-              break
-            fi
-            sleep 5
-          done
-          [ "$READY" = "true" ] || fail "La VM ne répond pas en SSH sur ${TARGET_IP} après redémarrage."
-
-          VERIFY="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${TARGET_IP}" \
-            "printf 'hostname='; hostname; printf ' hostname_file='; cat /etc/hostname; printf ' hosts_entry='; grep -E '^127\\.0\\.1\\.1[[:space:]]+' /etc/hosts | head -n1; printf ' ip='; ip -4 -o addr show scope global | awk '{print \$4}' | head -n1; printf ' gateway='; ip -4 route show default | awk '{print \$3; exit}'")"
-          printf '%s\n' "$VERIFY"
-
-          echo "dhcp_ip=${DHCP_IP}" >> "$GITHUB_OUTPUT"
-          echo "configured=true" >> "$GITHUB_OUTPUT"
 
       - name: Résumé du déploiement
         if: always()
@@ -509,34 +321,31 @@ jobs:
           VMID: ${{ steps.create_vm.outputs.vmid }}
           NODE: ${{ steps.create_vm.outputs.node }}
           TARGET_IP: ${{ steps.create_vm.outputs.expected_ip }}
-          VM_MAC: ${{ steps.create_vm.outputs.vm_mac }}
           VM_STATUS: ${{ steps.create_vm.outputs.vm_status }}
-          SSH_CONFIGURED: ${{ steps.ssh_config.outputs.configured }}
-          DHCP_IP: ${{ steps.ssh_config.outputs.dhcp_ip }}
           VM_HOSTNAME: ${{ inputs.hostname }}
           CORES: ${{ inputs.cores }}
           MEMORY_MB: ${{ inputs.memory_mb }}
         run: |
           {
-            echo "## Déploiement VM Web Proxmox"
+            echo "## Déploiement VM Web Proxmox / Cloud-Init"
             echo ""
             echo "| Paramètre | Valeur |"
             echo "|---|---|"
             echo "| Proxmox | ${PROXMOX_HOST} |"
             echo "| Nœud | ${NODE:-inconnu} |"
-            echo "| Template | ${TEMPLATE_VMID} |"
+            echo "| Template | ${TEMPLATE_VMID} - ${TEMPLATE_NAME} |"
             echo "| VMID | ${VMID:-non créé} |"
             echo "| Nom / hostname | ${VM_HOSTNAME} |"
-            echo "| MAC | ${VM_MAC:-inconnue} |"
+            echo "| Utilisateur Cloud-Init | ${CI_USER} |"
             echo "| vCPU | ${CORES} |"
             echo "| RAM | ${MEMORY_MB} Mo |"
             echo "| Stockage | ${STORAGE} |"
             echo "| Bridge | ${BRIDGE} |"
             echo "| Pool VMID | ${VMID_MIN}-${VMID_MAX} |"
-            echo "| Pool DHCP temporaire | 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST} |"
-            echo "| Pool statique Web | 10.0.0.${STATIC_IP_FIRST}-10.0.0.${STATIC_IP_LAST} |"
-            echo "| IP DHCP détectée | ${DHCP_IP:-non détectée} |"
-            echo "| IP statique cible | ${TARGET_IP:-inconnue} |"
+            echo "| Pool IP Web | 10.0.0.${STATIC_IP_FIRST}-10.0.0.${STATIC_IP_LAST} |"
+            echo "| IP statique | ${TARGET_IP:-inconnue}/${NETWORK_CIDR} |"
+            echo "| Passerelle | ${NETWORK_GATEWAY} |"
+            echo "| DNS | ${NETWORK_DNS} |"
             echo "| VM démarrée | ${VM_STATUS:-inconnu} |"
-            echo "| Post-configuration SSH | ${SSH_CONFIGURED:-false} |"
+            echo "| Configuration | Cloud-Init |"
           } >> "$GITHUB_STEP_SUMMARY"
