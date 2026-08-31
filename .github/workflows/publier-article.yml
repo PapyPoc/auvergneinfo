@@ -11,7 +11,9 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.issue.title, '[ARTICLE] ')
+    # Seul le propriétaire du dépôt peut utiliser une Issue [ARTICLE].
+    # C'est indispensable car ce workflow peut déclencher ensuite le déploiement Proxmox.
+    if: startsWith(github.event.issue.title, '[ARTICLE] ') && github.actor == github.repository_owner && github.event.issue.user.login == github.repository_owner
     runs-on: ubuntu-latest
     steps:
       - name: Transformer l'Issue en article Markdown
@@ -262,13 +264,29 @@ jobs:
             });
 
             // Les commits effectués avec GITHUB_TOKEN ne redéclenchent pas
-            // automatiquement un workflow sur l'événement push. On lance donc
-            // explicitement le workflow de déploiement après publication.
+            // automatiquement les workflows sur l'événement push. On lance donc
+            // explicitement les deux déploiements après publication.
+            const ref = context.payload.repository.default_branch || 'main';
+
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'deploy.yml',
-              ref: context.payload.repository.default_branch || 'main'
+              ref
+            });
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-proxmox-vm.yml',
+              ref,
+              inputs: {
+                hostname: 'web-auvergneinfo',
+                cores: '2',
+                memory_mb: '2048',
+                disk_grow_gb: '0',
+                start_vm: 'true'
+              }
             });
 
             const importedMessage = localized.size > 0
@@ -279,7 +297,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issue.number,
-              body: `✅ Article créé dans \`${filename}\`. ${importedMessage} Image principale utilisée : \`${image}\`. Le déploiement GitHub Pages a été déclenché.`
+              body: `✅ Article créé dans \`${filename}\`. ${importedMessage} Image principale utilisée : \`${image}\`. Les déploiements GitHub Pages et Nginx/Proxmox ont été déclenchés.`
             });
 
             await github.rest.issues.update({
