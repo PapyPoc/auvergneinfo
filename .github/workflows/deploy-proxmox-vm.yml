@@ -32,7 +32,6 @@ on:
 permissions:
   contents: read
 
-# Empêche deux déploiements simultanés de sélectionner le même VMID.
 concurrency:
   group: proxmox-web-vm-deploy
   cancel-in-progress: false
@@ -51,8 +50,10 @@ jobs:
       BRIDGE: "vmbr0"
       VMID_MIN: "300"
       VMID_MAX: "304"
-      WEB_IP_FIRST: "151"
-      WEB_IP_LAST: "155"
+      DHCP_IP_FIRST: "100"
+      DHCP_IP_LAST: "150"
+      STATIC_IP_FIRST: "151"
+      STATIC_IP_LAST: "155"
       NETWORK_CIDR: "24"
       NETWORK_GATEWAY: "10.0.0.254"
       NETWORK_DNS: "10.0.0.254"
@@ -151,21 +152,9 @@ jobs:
             printf '%s' "$body"
           }
 
-          api_get() {
-            api_request GET "$1"
-          }
-
-          api_post() {
-            local path="$1"
-            shift
-            api_request POST "$path" "$@"
-          }
-
-          api_put() {
-            local path="$1"
-            shift
-            api_request PUT "$path" "$@"
-          }
+          api_get() { api_request GET "$1"; }
+          api_post() { local path="$1"; shift; api_request POST "$path" "$@"; }
+          api_put() { local path="$1"; shift; api_request PUT "$path" "$@"; }
 
           json_data() {
             python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", ""))'
@@ -184,7 +173,6 @@ jobs:
             for _ in $(seq 1 300); do
               response="$(api_get "/nodes/${node}/tasks/${encoded}/status")"
               status="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("status", ""))')"
-
               if [ "$status" = "stopped" ]; then
                 exitstatus="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("exitstatus", ""))')"
                 [ "$exitstatus" = "OK" ] || fail "Tâche Proxmox échouée : ${exitstatus:-inconnu}"
@@ -192,7 +180,6 @@ jobs:
               fi
               sleep 2
             done
-
             fail "Timeout en attente de la tâche Proxmox."
           }
 
@@ -224,7 +211,7 @@ jobs:
           ' "$VMID_MIN" "$VMID_MAX")"
 
           [ -n "$VMID" ] || fail "Pool VMID saturé : tous les VMID ${VMID_MIN}-${VMID_MAX} sont déjà utilisés."
-          EXPECTED_IP="10.0.0.$((WEB_IP_FIRST + VMID - VMID_MIN))"
+          EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
 
           echo "VMID sélectionné : ${VMID}"
           echo "IP statique cible : ${EXPECTED_IP}"
@@ -346,10 +333,10 @@ jobs:
           VM_MAC="$(printf '%s' "$VM_MAC" | tr '[:upper:]' '[:lower:]')"
           DHCP_IP=""
 
-          echo "Recherche de la VM ${VMID} (${VM_MAC}) dans le pool DHCP 10.0.0.${WEB_IP_FIRST}-10.0.0.${WEB_IP_LAST}..."
+          echo "Recherche de la VM ${VMID} (${VM_MAC}) dans le pool DHCP 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST}..."
 
           for attempt in $(seq 1 60); do
-            for octet in $(seq "$WEB_IP_FIRST" "$WEB_IP_LAST"); do
+            for octet in $(seq "$DHCP_IP_FIRST" "$DHCP_IP_LAST"); do
               candidate="10.0.0.${octet}"
               remote_mac="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${candidate}" \
                 "iface=\$(ip -4 route show default | awk '{print \$5; exit}'); [ -n \"\$iface\" ] && cat /sys/class/net/\$iface/address" \
@@ -366,7 +353,7 @@ jobs:
             sleep 5
           done
 
-          [ -n "$DHCP_IP" ] || fail "Impossible de retrouver la nouvelle VM par sa MAC ${VM_MAC} dans le pool DHCP. Vérifie SSH, la clé du template et le DHCP pfSense."
+          [ -n "$DHCP_IP" ] || fail "Impossible de retrouver la nouvelle VM par sa MAC ${VM_MAC} dans le pool DHCP 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST}."
           echo "VM retrouvée : ${DHCP_IP} (DHCP) -> ${TARGET_IP} (statique)."
 
           echo "Vérification de l'authentification sudo..."
@@ -450,9 +437,6 @@ jobs:
           printf 'POSTCONFIG_OK backend=%s iface=%s\n' "$BACKEND" "$IFACE"
           REMOTE_SCRIPT
 
-          # sudo lit la première ligne sur stdin comme mot de passe ; bash lit
-          # ensuite le reste du flux comme script. Le mot de passe ne figure
-          # ni dans la ligne de commande distante ni dans les logs.
           {
             printf '%s\n' "$VM_SUDO_PASSWORD"
             cat "$REMOTE_SCRIPT_FILE"
@@ -514,7 +498,8 @@ jobs:
             echo "| Stockage | ${STORAGE} |"
             echo "| Bridge | ${BRIDGE} |"
             echo "| Pool VMID | ${VMID_MIN}-${VMID_MAX} |"
-            echo "| Pool IP Web | 10.0.0.${WEB_IP_FIRST}-10.0.0.${WEB_IP_LAST} |"
+            echo "| Pool DHCP temporaire | 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST} |"
+            echo "| Pool statique Web | 10.0.0.${STATIC_IP_FIRST}-10.0.0.${STATIC_IP_LAST} |"
             echo "| IP DHCP détectée | ${DHCP_IP:-non détectée} |"
             echo "| IP statique cible | ${TARGET_IP:-inconnue} |"
             echo "| VM démarrée | ${VM_STATUS:-inconnu} |"
