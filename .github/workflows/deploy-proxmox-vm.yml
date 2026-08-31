@@ -9,22 +9,22 @@ on:
         default: "web-auvergneinfo"
         type: string
       cores:
-        description: "Nombre de vCPU"
+        description: "Nombre de vCPU (utilisé uniquement à la création)"
         required: true
         default: "2"
         type: string
       memory_mb:
-        description: "Mémoire en Mo"
+        description: "Mémoire en Mo (utilisée uniquement à la création)"
         required: true
         default: "2048"
         type: string
       disk_grow_gb:
-        description: "Espace à AJOUTER au disque du template, en Go (0 = inchangé)"
+        description: "Espace à AJOUTER au disque du template, en Go (création uniquement)"
         required: true
         default: "0"
         type: string
       start_vm:
-        description: "Démarrer la VM après configuration Cloud-Init"
+        description: "Démarrer la VM et déployer le site"
         required: true
         default: true
         type: boolean
@@ -38,9 +38,9 @@ concurrency:
 
 jobs:
   deploy:
-    name: Cloner et configurer Debian 13 Cloud-Init sur Proxmox
+    name: Provisionner ou mettre à jour AuvergneInfo
     runs-on: [self-hosted, linux, x64, auvergneinfo]
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     env:
       PROXMOX_HOST: "10.0.0.253"
@@ -57,14 +57,19 @@ jobs:
       NETWORK_GATEWAY: "10.0.0.254"
       NETWORK_DNS: "10.0.0.254"
       CI_USER: "poc"
+      WEB_ROOT: "/var/www/auvergneinfo"
 
     steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v7
+
       - name: Vérifier les prérequis
         shell: bash
         env:
           PROXMOX_TOKEN_ID: ${{ secrets.PROXMOX_TOKEN_ID }}
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
-          VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          START_VM: ${{ inputs.start_vm }}
         run: |
           set -euo pipefail
 
@@ -75,29 +80,51 @@ jobs:
 
           command -v curl >/dev/null || fail "curl est requis sur runner-git."
           command -v python3 >/dev/null || fail "python3 est requis sur runner-git."
+          command -v ssh >/dev/null || fail "openssh-client est requis sur runner-git."
+          command -v scp >/dev/null || fail "scp est requis sur runner-git."
+          command -v ssh-keygen >/dev/null || fail "ssh-keygen est requis sur runner-git."
+          command -v tar >/dev/null || fail "tar est requis sur runner-git."
 
           [ -n "${PROXMOX_TOKEN_ID:-}" ] || fail "Secret PROXMOX_TOKEN_ID absent."
           [ -n "${PROXMOX_TOKEN_SECRET:-}" ] || fail "Secret PROXMOX_TOKEN_SECRET absent."
 
-          if [ -n "${VM_SSH_PUBLIC_KEY:-}" ]; then
-            command -v ssh-keygen >/dev/null || fail "ssh-keygen est requis pour valider VM_SSH_PUBLIC_KEY."
-            KEY_FILE="$(mktemp)"
-            trap 'rm -f "$KEY_FILE"' EXIT
-            printf '%s\n' "$VM_SSH_PUBLIC_KEY" | tr -d '\r' > "$KEY_FILE"
-            ssh-keygen -l -f "$KEY_FILE" >/dev/null 2>&1 \
-              || fail "VM_SSH_PUBLIC_KEY n'est pas une clé publique SSH valide."
-            echo "Clé publique SSH Cloud-Init valide."
-          else
-            echo "VM_SSH_PUBLIC_KEY absent : la clé SSH déjà configurée dans le template sera conservée."
+          if [ "$START_VM" = "true" ]; then
+            [ -n "${VM_SSH_PRIVATE_KEY:-}" ] || fail "Secret VM_SSH_PRIVATE_KEY absent."
+
+            KEY_TEST_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_TEST_FILE"' EXIT
+            printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_TEST_FILE"
+            chmod 600 "$KEY_TEST_FILE"
+
+            if ! SSH_KEY_ERROR="$(ssh-keygen -y -P '' -f "$KEY_TEST_FILE" 2>&1 >/dev/null)"; then
+              fail "VM_SSH_PRIVATE_KEY n'est pas une clé privée SSH valide ou utilisable sans passphrase. Détail : ${SSH_KEY_ERROR:-format invalide}"
+            fi
+
+            echo "Clé privée SSH valide."
           fi
 
-      - name: Créer et configurer la VM Cloud-Init
+      - name: Installer Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Installer les dépendances Astro
+        run: npm install
+
+      - name: Construire le site pour auvergneinfo.fr
+        run: npm run build
+        env:
+          PAGES_ORIGIN: https://auvergneinfo.fr
+          PAGES_BASE_PATH: ""
+
+      - name: Provisionner ou réutiliser la VM
         id: create_vm
         shell: bash
         env:
           PROXMOX_TOKEN_ID: ${{ secrets.PROXMOX_TOKEN_ID }}
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
-          VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
           VM_HOSTNAME: ${{ inputs.hostname }}
           CORES: ${{ inputs.cores }}
           MEMORY_MB: ${{ inputs.memory_mb }}
@@ -113,7 +140,6 @@ jobs:
 
           PROXMOX_TOKEN_ID="$(printf '%s' "${PROXMOX_TOKEN_ID:-}" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
           PROXMOX_TOKEN_SECRET="$(printf '%s' "${PROXMOX_TOKEN_SECRET:-}" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
-          VM_SSH_PUBLIC_KEY="$(printf '%s' "${VM_SSH_PUBLIC_KEY:-}" | tr -d '\r' | head -n1)"
 
           [[ "$PROXMOX_TOKEN_ID" =~ ^[^[:space:]]+@[^[:space:]!]+![^[:space:]]+$ ]] \
             || fail "PROXMOX_TOKEN_ID invalide. Format attendu : utilisateur@realm!token."
@@ -196,7 +222,59 @@ jobs:
           cluster_resources="$(api_get "/cluster/resources?type=vm")"
           echo "Authentification API Proxmox réussie."
 
-          node="$(printf '%s' "$cluster_resources" | python3 -c '
+          existing_info="$(printf '%s' "$cluster_resources" | python3 -c '
+          import json,sys
+          wanted=sys.argv[1].lower()
+          matches=[]
+          for item in json.load(sys.stdin).get("data", []):
+              if str(item.get("name", "")).lower() == wanted and not int(item.get("template", 0) or 0):
+                  matches.append(item)
+          if len(matches) > 1:
+              print("MULTIPLE")
+          elif len(matches) == 1:
+              x=matches[0]
+              print(f"{x.get(\"vmid\", \"\")}\t{x.get(\"node\", \"\")}\t{x.get(\"status\", \"\")}")
+          ' "$VM_HOSTNAME")"
+
+          [ "$existing_info" != "MULTIPLE" ] \
+            || fail "Plusieurs VM portent le nom ${VM_HOSTNAME}. Impossible de choisir en sécurité."
+
+          VM_REUSED="false"
+          VM_STATUS="stopped"
+
+          if [ -n "$existing_info" ]; then
+            IFS=$'\t' read -r VMID node VM_STATUS <<< "$existing_info"
+
+            [[ "$VMID" =~ ^[0-9]+$ ]] || fail "VMID existant invalide : ${VMID:-vide}."
+            (( VMID >= VMID_MIN && VMID <= VMID_MAX )) \
+              || fail "La VM ${VM_HOSTNAME} existe avec le VMID ${VMID}, hors du pool géré ${VMID_MIN}-${VMID_MAX}."
+
+            EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
+            vm_config="$(api_get "/nodes/${node}/qemu/${VMID}/config")"
+            CONFIGURED_IP="$(printf '%s' "$vm_config" | python3 -c '
+          import json,re,sys
+          cfg=str(json.load(sys.stdin).get("data", {}).get("ipconfig0", ""))
+          m=re.search(r"(?:^|,)ip=([^/,]+)(?:/\d+)?", cfg)
+          print(m.group(1) if m else "")
+          ')"
+
+            [ "$CONFIGURED_IP" = "$EXPECTED_IP" ] \
+              || fail "La VM ${VMID} existe mais son IP Cloud-Init (${CONFIGURED_IP:-absente}) ne correspond pas à l'IP attendue ${EXPECTED_IP}."
+
+            VM_REUSED="true"
+            echo "VM existante trouvée : ${VM_HOSTNAME} (VMID ${VMID}, ${EXPECTED_IP})."
+            echo "Aucun clonage et aucune modification matérielle ne seront effectués."
+
+            if [ "$START_VM" = "true" ] && [ "$VM_STATUS" != "running" ]; then
+              echo "Démarrage de la VM existante ${VMID}..."
+              start_response="$(api_post "/nodes/${node}/qemu/${VMID}/status/start")"
+              start_upid="$(printf '%s' "$start_response" | json_data)"
+              [ -n "$start_upid" ] || fail "Proxmox n'a pas retourné de tâche de démarrage."
+              wait_task "$node" "$start_upid"
+              VM_STATUS="running"
+            fi
+          else
+            node="$(printf '%s' "$cluster_resources" | python3 -c '
           import json,sys
           target=int(sys.argv[1])
           for item in json.load(sys.stdin).get("data", []):
@@ -205,12 +283,11 @@ jobs:
                   break
           ' "$TEMPLATE_VMID")"
 
-          [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable ou non visible avec ce token."
-          echo "Template ${TEMPLATE_VMID} détecté sur le nœud : ${node}"
+            [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable ou non visible avec ce token."
+            echo "Template ${TEMPLATE_VMID} détecté sur le nœud : ${node}"
 
-          template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
-
-          template_check="$(printf '%s' "$template_config" | python3 -c '
+            template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
+            template_check="$(printf '%s' "$template_config" | python3 -c '
           import json,sys
           expected=sys.argv[1]
           data=json.load(sys.stdin).get("data", {})
@@ -220,12 +297,10 @@ jobs:
           print("ok" if is_template and name.lower() == expected.lower() and has_cloudinit else f"template={is_template};name={name};cloudinit={has_cloudinit}")
           ' "$TEMPLATE_NAME")"
 
-          [ "$template_check" = "ok" ] \
-            || fail "Le VMID ${TEMPLATE_VMID} n'est pas le template Cloud-Init attendu ${TEMPLATE_NAME} (${template_check})."
+            [ "$template_check" = "ok" ] \
+              || fail "Le VMID ${TEMPLATE_VMID} n'est pas le template Cloud-Init attendu ${TEMPLATE_NAME} (${template_check})."
 
-          echo "Template Cloud-Init ${TEMPLATE_NAME} validé."
-
-          VMID="$(printf '%s' "$cluster_resources" | python3 -c '
+            VMID="$(printf '%s' "$cluster_resources" | python3 -c '
           import json,sys
           minimum=int(sys.argv[1])
           maximum=int(sys.argv[2])
@@ -236,51 +311,51 @@ jobs:
                   break
           ' "$VMID_MIN" "$VMID_MAX")"
 
-          [ -n "$VMID" ] || fail "Pool VMID saturé : tous les VMID ${VMID_MIN}-${VMID_MAX} sont déjà utilisés."
+            [ -n "$VMID" ] || fail "Pool VMID saturé : tous les VMID ${VMID_MIN}-${VMID_MAX} sont déjà utilisés."
+            EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
 
-          EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
-          (( STATIC_IP_FIRST + VMID - VMID_MIN <= STATIC_IP_LAST )) \
-            || fail "Aucune IP statique disponible pour le VMID ${VMID}."
+            echo "Création nécessaire : ${VM_HOSTNAME} n'existe pas encore."
+            echo "VMID sélectionné : ${VMID}"
+            echo "IP Cloud-Init : ${EXPECTED_IP}/${NETWORK_CIDR}"
 
-          echo "VMID sélectionné : ${VMID}"
-          echo "IP Cloud-Init : ${EXPECTED_IP}/${NETWORK_CIDR}"
+            api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null
+            api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null
 
-          api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null
-          api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null
+            clone_response="$(api_post "/nodes/${node}/qemu/${TEMPLATE_VMID}/clone" \
+              --data-urlencode "newid=${VMID}" \
+              --data-urlencode "name=${VM_HOSTNAME}" \
+              --data-urlencode "full=1" \
+              --data-urlencode "storage=${STORAGE}")"
 
-          echo "Clonage complet de ${TEMPLATE_VMID} (${TEMPLATE_NAME}) vers VMID ${VMID}..."
-          clone_response="$(api_post "/nodes/${node}/qemu/${TEMPLATE_VMID}/clone" \
-            --data-urlencode "newid=${VMID}" \
-            --data-urlencode "name=${VM_HOSTNAME}" \
-            --data-urlencode "full=1" \
-            --data-urlencode "storage=${STORAGE}")"
+            clone_upid="$(printf '%s' "$clone_response" | json_data)"
+            [ -n "$clone_upid" ] || fail "Proxmox n'a pas retourné de tâche de clonage."
+            wait_task "$node" "$clone_upid"
+            echo "Clonage terminé."
 
-          clone_upid="$(printf '%s' "$clone_response" | json_data)"
-          [ -n "$clone_upid" ] || fail "Proxmox n'a pas retourné de tâche de clonage."
-          wait_task "$node" "$clone_upid"
-          echo "Clonage terminé."
+            CONFIG_ARGS=(
+              --data-urlencode "cores=${CORES}"
+              --data-urlencode "memory=${MEMORY_MB}"
+              --data-urlencode "net0=virtio,bridge=${BRIDGE}"
+              --data-urlencode "onboot=1"
+              --data-urlencode "ciuser=${CI_USER}"
+              --data-urlencode "ipconfig0=ip=${EXPECTED_IP}/${NETWORK_CIDR},gw=${NETWORK_GATEWAY}"
+              --data-urlencode "nameserver=${NETWORK_DNS}"
+            )
 
-          echo "Configuration matérielle et Cloud-Init..."
+            if [ "$START_VM" = "true" ]; then
+              KEY_FILE="$(mktemp)"
+              trap 'rm -f "$KEY_FILE"' EXIT
+              printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_FILE"
+              chmod 600 "$KEY_FILE"
+              VM_SSH_PUBLIC_KEY="$(ssh-keygen -y -P '' -f "$KEY_FILE")"
+              CONFIG_ARGS+=(--data-urlencode "sshkeys=${VM_SSH_PUBLIC_KEY}")
+            fi
 
-          CONFIG_ARGS=(
-            --data-urlencode "cores=${CORES}"
-            --data-urlencode "memory=${MEMORY_MB}"
-            --data-urlencode "net0=virtio,bridge=${BRIDGE}"
-            --data-urlencode "onboot=1"
-            --data-urlencode "ciuser=${CI_USER}"
-            --data-urlencode "ipconfig0=ip=${EXPECTED_IP}/${NETWORK_CIDR},gw=${NETWORK_GATEWAY}"
-            --data-urlencode "nameserver=${NETWORK_DNS}"
-          )
+            api_put "/nodes/${node}/qemu/${VMID}/config" "${CONFIG_ARGS[@]}" >/dev/null
 
-          if [ -n "$VM_SSH_PUBLIC_KEY" ]; then
-            CONFIG_ARGS+=(--data-urlencode "sshkeys=${VM_SSH_PUBLIC_KEY}")
-          fi
-
-          api_put "/nodes/${node}/qemu/${VMID}/config" "${CONFIG_ARGS[@]}" >/dev/null
-
-          if (( DISK_GROW_GB > 0 )); then
-            vm_config="$(api_get "/nodes/${node}/qemu/${VMID}/config")"
-            boot_disk="$(printf '%s' "$vm_config" | python3 -c '
+            if (( DISK_GROW_GB > 0 )); then
+              vm_config="$(api_get "/nodes/${node}/qemu/${VMID}/config")"
+              boot_disk="$(printf '%s' "$vm_config" | python3 -c '
           import json,sys
           data=json.load(sys.stdin).get("data", {})
           for key in ["scsi0", "virtio0", "sata0", "ide0"]:
@@ -289,22 +364,20 @@ jobs:
                   print(key)
                   break
           ')"
+              [ -n "$boot_disk" ] || fail "Impossible de déterminer le disque système à agrandir."
+              api_put "/nodes/${node}/qemu/${VMID}/resize" \
+                --data-urlencode "disk=${boot_disk}" \
+                --data-urlencode "size=+${DISK_GROW_GB}G" >/dev/null
+            fi
 
-            [ -n "$boot_disk" ] || fail "Impossible de déterminer le disque système à agrandir."
-            echo "Agrandissement de ${boot_disk} de +${DISK_GROW_GB}G..."
-            api_put "/nodes/${node}/qemu/${VMID}/resize" \
-              --data-urlencode "disk=${boot_disk}" \
-              --data-urlencode "size=+${DISK_GROW_GB}G" >/dev/null
-          fi
-
-          VM_STATUS="stopped"
-          if [ "$START_VM" = "true" ]; then
-            echo "Démarrage de la VM ${VMID} avec Cloud-Init..."
-            start_response="$(api_post "/nodes/${node}/qemu/${VMID}/status/start")"
-            start_upid="$(printf '%s' "$start_response" | json_data)"
-            [ -n "$start_upid" ] || fail "Proxmox n'a pas retourné de tâche de démarrage."
-            wait_task "$node" "$start_upid"
-            VM_STATUS="running"
+            if [ "$START_VM" = "true" ]; then
+              echo "Démarrage de la nouvelle VM ${VMID}..."
+              start_response="$(api_post "/nodes/${node}/qemu/${VMID}/status/start")"
+              start_upid="$(printf '%s' "$start_response" | json_data)"
+              [ -n "$start_upid" ] || fail "Proxmox n'a pas retourné de tâche de démarrage."
+              wait_task "$node" "$start_upid"
+              VM_STATUS="running"
+            fi
           fi
 
           {
@@ -312,7 +385,131 @@ jobs:
             echo "node=${node}"
             echo "expected_ip=${EXPECTED_IP}"
             echo "vm_status=${VM_STATUS}"
+            echo "reused=${VM_REUSED}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Installer Nginx et déployer le site
+        id: deploy_site
+        if: ${{ inputs.start_vm == true }}
+        shell: bash
+        env:
+          TARGET_IP: ${{ steps.create_vm.outputs.expected_ip }}
+          VMID: ${{ steps.create_vm.outputs.vmid }}
+          VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$*" >&2
+            exit 1
+          }
+
+          SSH_KEY_FILE="$(mktemp)"
+          SITE_ARCHIVE="$(mktemp --suffix=.tar.gz)"
+          DEPLOY_SCRIPT="$(mktemp)"
+          trap 'rm -f "$SSH_KEY_FILE" "$SITE_ARCHIVE" "$DEPLOY_SCRIPT"' EXIT
+
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
+          chmod 600 "$SSH_KEY_FILE"
+
+          SSH_OPTS=(
+            -i "$SSH_KEY_FILE"
+            -o BatchMode=yes
+            -o ConnectTimeout=5
+            -o ConnectionAttempts=1
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o LogLevel=ERROR
+          )
+
+          echo "Attente de SSH sur ${CI_USER}@${TARGET_IP}..."
+          READY="false"
+          for attempt in $(seq 1 60); do
+            if ssh "${SSH_OPTS[@]}" "${CI_USER}@${TARGET_IP}" "printf READY" 2>/dev/null | grep -q READY; then
+              READY="true"
+              break
+            fi
+            sleep 5
+          done
+          [ "$READY" = "true" ] || fail "La VM ${VMID} ne répond pas en SSH sur ${TARGET_IP}."
+
+          echo "SSH disponible. Attente de la fin de Cloud-Init..."
+          ssh "${SSH_OPTS[@]}" "${CI_USER}@${TARGET_IP}" \
+            "if command -v cloud-init >/dev/null 2>&1; then cloud-init status --wait; fi"
+
+          SUDO_MODE=""
+          if ssh "${SSH_OPTS[@]}" "${CI_USER}@${TARGET_IP}" "sudo -n true" >/dev/null 2>&1; then
+            SUDO_MODE="nopasswd"
+          elif [ -n "${VM_SUDO_PASSWORD:-}" ] && \
+               printf '%s\n' "$VM_SUDO_PASSWORD" | ssh "${SSH_OPTS[@]}" "${CI_USER}@${TARGET_IP}" "sudo -S -k -p '' true" >/dev/null 2>&1; then
+            SUDO_MODE="password"
+          else
+            fail "Le compte ${CI_USER} ne peut pas utiliser sudo sans interaction. Configure VM_SUDO_PASSWORD ou les droits sudo de la VM."
+          fi
+
+          echo "Préparation du site Astro..."
+          tar -C dist -czf "$SITE_ARCHIVE" .
+
+          cat > "$DEPLOY_SCRIPT" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          WEB_ROOT="$1"
+
+          apt-get update
+          apt-get install -y nginx
+
+          install -d -o root -g root -m 0755 "$WEB_ROOT"
+          find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          tar -xzf /tmp/auvergneinfo-site.tar.gz -C "$WEB_ROOT"
+          chown -R www-data:www-data "$WEB_ROOT"
+          find "$WEB_ROOT" -type d -exec chmod 0755 {} +
+          find "$WEB_ROOT" -type f -exec chmod 0644 {} +
+
+          install -m 0644 /tmp/auvergneinfo.conf /etc/nginx/sites-available/auvergneinfo.conf
+          ln -sfn /etc/nginx/sites-available/auvergneinfo.conf /etc/nginx/sites-enabled/auvergneinfo.conf
+          rm -f /etc/nginx/sites-enabled/default
+
+          nginx -t
+          systemctl enable nginx
+          systemctl reload nginx || systemctl restart nginx
+
+          rm -f /tmp/auvergneinfo-site.tar.gz /tmp/auvergneinfo.conf /tmp/auvergneinfo-deploy.sh
+          REMOTE_SCRIPT
+
+          echo "Transfert du site et de la configuration Nginx..."
+          scp "${SSH_OPTS[@]}" "$SITE_ARCHIVE" \
+            "${CI_USER}@${TARGET_IP}:/tmp/auvergneinfo-site.tar.gz"
+          scp "${SSH_OPTS[@]}" deploy/nginx/auvergneinfo.conf \
+            "${CI_USER}@${TARGET_IP}:/tmp/auvergneinfo.conf"
+          scp "${SSH_OPTS[@]}" "$DEPLOY_SCRIPT" \
+            "${CI_USER}@${TARGET_IP}:/tmp/auvergneinfo-deploy.sh"
+
+          echo "Installation / mise à jour Nginx et publication du site..."
+          if [ "$SUDO_MODE" = "nopasswd" ]; then
+            ssh "${SSH_OPTS[@]}" "${CI_USER}@${TARGET_IP}" \
+              "sudo -n bash /tmp/auvergneinfo-deploy.sh '$WEB_ROOT'"
+          else
+            printf '%s\n' "$VM_SUDO_PASSWORD" | \
+              ssh "${SSH_OPTS[@]}" "${CI_USER}@${TARGET_IP}" \
+                "sudo -S -k -p '' bash /tmp/auvergneinfo-deploy.sh '$WEB_ROOT'"
+          fi
+
+          echo "Vérification HTTP de ${TARGET_IP}..."
+          HTTP_OK="false"
+          for attempt in $(seq 1 20); do
+            HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://${TARGET_IP}/" || true)"
+            if [ "$HTTP_CODE" = "200" ]; then
+              HTTP_OK="true"
+              break
+            fi
+            sleep 2
+          done
+          [ "$HTTP_OK" = "true" ] || fail "Nginx ne retourne pas HTTP 200 sur http://${TARGET_IP}/."
+
+          echo "Site déployé avec succès sur http://${TARGET_IP}/"
+          echo "site_deployed=true" >> "$GITHUB_OUTPUT"
 
       - name: Résumé du déploiement
         if: always()
@@ -322,30 +519,29 @@ jobs:
           NODE: ${{ steps.create_vm.outputs.node }}
           TARGET_IP: ${{ steps.create_vm.outputs.expected_ip }}
           VM_STATUS: ${{ steps.create_vm.outputs.vm_status }}
+          VM_REUSED: ${{ steps.create_vm.outputs.reused }}
+          SITE_DEPLOYED: ${{ steps.deploy_site.outputs.site_deployed }}
           VM_HOSTNAME: ${{ inputs.hostname }}
-          CORES: ${{ inputs.cores }}
-          MEMORY_MB: ${{ inputs.memory_mb }}
         run: |
+          if [ "${VM_REUSED:-false}" = "true" ]; then
+            ACTION="VM existante réutilisée / site mis à jour"
+          else
+            ACTION="Nouvelle VM créée"
+          fi
+
           {
-            echo "## Déploiement VM Web Proxmox / Cloud-Init"
+            echo "## Déploiement AuvergneInfo"
             echo ""
             echo "| Paramètre | Valeur |"
             echo "|---|---|"
+            echo "| Action | ${ACTION} |"
             echo "| Proxmox | ${PROXMOX_HOST} |"
             echo "| Nœud | ${NODE:-inconnu} |"
-            echo "| Template | ${TEMPLATE_VMID} - ${TEMPLATE_NAME} |"
+            echo "| Template création | ${TEMPLATE_VMID} - ${TEMPLATE_NAME} |"
             echo "| VMID | ${VMID:-non créé} |"
             echo "| Nom / hostname | ${VM_HOSTNAME} |"
-            echo "| Utilisateur Cloud-Init | ${CI_USER} |"
-            echo "| vCPU | ${CORES} |"
-            echo "| RAM | ${MEMORY_MB} Mo |"
-            echo "| Stockage | ${STORAGE} |"
-            echo "| Bridge | ${BRIDGE} |"
-            echo "| Pool VMID | ${VMID_MIN}-${VMID_MAX} |"
-            echo "| Pool IP Web | 10.0.0.${STATIC_IP_FIRST}-10.0.0.${STATIC_IP_LAST} |"
-            echo "| IP statique | ${TARGET_IP:-inconnue}/${NETWORK_CIDR} |"
-            echo "| Passerelle | ${NETWORK_GATEWAY} |"
-            echo "| DNS | ${NETWORK_DNS} |"
+            echo "| IP | ${TARGET_IP:-inconnue}/${NETWORK_CIDR} |"
             echo "| VM démarrée | ${VM_STATUS:-inconnu} |"
-            echo "| Configuration | Cloud-Init |"
+            echo "| Nginx / site | ${SITE_DEPLOYED:-false} |"
+            echo "| Racine Web | ${WEB_ROOT} |"
           } >> "$GITHUB_STEP_SUMMARY"
