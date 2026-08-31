@@ -106,6 +106,25 @@ wait_task() {
   fail "Timeout en attente de la tâche Proxmox."
 }
 
+cloudinit_config_args() {
+  CONFIG_ARGS=(
+    --data-urlencode "cores=${CORES}"
+    --data-urlencode "memory=${MEMORY_MB}"
+    --data-urlencode "net0=virtio,bridge=${BRIDGE}"
+    --data-urlencode "onboot=1"
+    --data-urlencode "ciuser=${CI_USER}"
+    --data-urlencode "ipconfig0=ip=${EXPECTED_IP}/${NETWORK_CIDR},gw=${NETWORK_GATEWAY}"
+    --data-urlencode "nameserver=${NETWORK_DNS}"
+  )
+
+  if [ "$START_VM" = "true" ]; then
+    local raw_key encoded_key
+    raw_key="$(ssh-keygen -y -P '' -f "$SSH_KEY_FILE")"
+    encoded_key="$(url_encode "$raw_key")"
+    CONFIG_ARGS+=(--data-urlencode "sshkeys=${encoded_key}")
+  fi
+}
+
 echo "Connexion à Proxmox ${PROXMOX_HOST}:${PROXMOX_PORT}..."
 cluster_resources="$(api_get '/cluster/resources?type=vm')"
 echo "Authentification API Proxmox réussie."
@@ -144,12 +163,18 @@ cfg=str(json.load(sys.stdin).get("data", {}).get("ipconfig0", ""))
 m=re.search(r"(?:^|,)ip=([^/,]+)(?:/\d+)?", cfg)
 print(m.group(1) if m else "")
 ')"
-  [ "$CONFIGURED_IP" = "$EXPECTED_IP" ] \
-    || fail "La VM ${VMID} existe mais son IP Cloud-Init (${CONFIGURED_IP:-absente}) ne correspond pas à ${EXPECTED_IP}."
 
-  VM_REUSED="true"
-  echo "VM existante : ${VM_HOSTNAME} (VMID ${VMID}, ${EXPECTED_IP})."
-  echo "Aucun clonage ni changement matériel : mise à jour du site uniquement."
+  if [ -z "$CONFIGURED_IP" ]; then
+    echo "VM ${VMID} trouvée mais provisioning Cloud-Init incomplet : reprise de la configuration."
+    cloudinit_config_args
+    api_put "/nodes/${node}/qemu/${VMID}/config" "${CONFIG_ARGS[@]}" >/dev/null
+  elif [ "$CONFIGURED_IP" != "$EXPECTED_IP" ]; then
+    fail "La VM ${VMID} existe mais son IP Cloud-Init (${CONFIGURED_IP}) ne correspond pas à ${EXPECTED_IP}."
+  else
+    VM_REUSED="true"
+    echo "VM existante : ${VM_HOSTNAME} (VMID ${VMID}, ${EXPECTED_IP})."
+    echo "Aucun clonage ni changement matériel : mise à jour du site uniquement."
+  fi
 
   if [ "$START_VM" = "true" ] && [ "$VM_STATUS" != "running" ]; then
     echo "Démarrage de la VM existante ${VMID}..."
@@ -211,21 +236,7 @@ for vmid in range(minimum, maximum + 1):
   [ -n "$clone_upid" ] || fail "Proxmox n'a pas retourné de tâche de clonage."
   wait_task "$node" "$clone_upid"
 
-  CONFIG_ARGS=(
-    --data-urlencode "cores=${CORES}"
-    --data-urlencode "memory=${MEMORY_MB}"
-    --data-urlencode "net0=virtio,bridge=${BRIDGE}"
-    --data-urlencode "onboot=1"
-    --data-urlencode "ciuser=${CI_USER}"
-    --data-urlencode "ipconfig0=ip=${EXPECTED_IP}/${NETWORK_CIDR},gw=${NETWORK_GATEWAY}"
-    --data-urlencode "nameserver=${NETWORK_DNS}"
-  )
-
-  if [ "$START_VM" = "true" ]; then
-    VM_SSH_PUBLIC_KEY="$(ssh-keygen -y -P '' -f "$SSH_KEY_FILE")"
-    CONFIG_ARGS+=(--data-urlencode "sshkeys=${VM_SSH_PUBLIC_KEY}")
-  fi
-
+  cloudinit_config_args
   api_put "/nodes/${node}/qemu/${VMID}/config" "${CONFIG_ARGS[@]}" >/dev/null
 
   if (( DISK_GROW_GB > 0 )); then
@@ -358,7 +369,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   if [ "$VM_REUSED" = "true" ]; then
     ACTION="VM existante réutilisée / site mis à jour"
   else
-    ACTION="Nouvelle VM créée / site déployé"
+    ACTION="Nouvelle VM créée ou provisioning repris / site déployé"
   fi
   {
     echo "## Déploiement AuvergneInfo"
