@@ -91,20 +91,4 @@ jobs:
           MEMORY_MB: ${{ inputs.memory_mb }}
           DISK_GROW_GB: ${{ inputs.disk_grow_gb }}
           START_VM: ${{ inputs.start_vm }}
-        run: |
-          set -euo pipefail
-
-          # OpenSSH récent utilise SFTP par défaut pour scp. Certaines images Debian
-          # minimales n'exposent pas le sous-système SFTP ; on force alors l'ancien
-          # protocole SCP, qui passe uniquement par la session SSH déjà fonctionnelle.
-          REAL_SCP="$(command -v scp)"
-          LEGACY_SCP_DIR="$(mktemp -d)"
-          trap 'rm -rf "$LEGACY_SCP_DIR"' EXIT
-
-          cat > "$LEGACY_SCP_DIR/scp" <<EOF
-          #!/usr/bin/env bash
-          exec "$REAL_SCP" -O "\$@"
-          EOF
-          chmod +x "$LEGACY_SCP_DIR/scp"
-
-          PATH="$LEGACY_SCP_DIR:$PATH" bash deploy/scripts/provision-and-deploy.sh
+        run: bash deploy/scripts/provision-and-deploy.sh
