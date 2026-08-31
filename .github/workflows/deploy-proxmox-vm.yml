@@ -46,7 +46,7 @@ jobs:
       PROXMOX_HOST: "10.0.0.253"
       PROXMOX_PORT: "8006"
       TEMPLATE_VMID: "200"
-      TEMPLATE_NAME: "Debian13-cloudinit"
+      TEMPLATE_NAME: "debian13-cloudinit"
       STORAGE: "local-btrfs"
       BRIDGE: "vmbr0"
       VMID_MIN: "300"
@@ -217,7 +217,7 @@ jobs:
           is_template=int(data.get("template", 0)) == 1
           name=str(data.get("name", ""))
           has_cloudinit=any(isinstance(v, str) and "cloudinit" in v.lower() for v in data.values())
-          print("ok" if is_template and name == expected and has_cloudinit else f"template={is_template};name={name};cloudinit={has_cloudinit}")
+          print("ok" if is_template and name.lower() == expected.lower() and has_cloudinit else f"template={is_template};name={name};cloudinit={has_cloudinit}")
           ' "$TEMPLATE_NAME")"
 
           [ "$template_check" = "ok" ] \
