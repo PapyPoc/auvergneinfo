@@ -80,6 +80,8 @@ jobs:
           command -v curl >/dev/null || fail "curl est requis sur runner-git."
           command -v python3 >/dev/null || fail "python3 est requis sur runner-git."
           command -v ssh >/dev/null || fail "openssh-client est requis sur runner-git."
+          command -v ip >/dev/null || fail "iproute2 est requis sur runner-git."
+          command -v ping >/dev/null || fail "iputils-ping est requis sur runner-git."
 
           [ -n "${PROXMOX_TOKEN_ID:-}" ] || fail "Secret PROXMOX_TOKEN_ID absent."
           [ -n "${PROXMOX_TOKEN_SECRET:-}" ] || fail "Secret PROXMOX_TOKEN_SECRET absent."
@@ -126,17 +128,11 @@ jobs:
             local method="$1"
             local path="$2"
             shift 2
-
             local body_file http_code body
             body_file="$(mktemp)"
 
-            if ! http_code="$(curl -ksS \
-              -o "$body_file" \
-              -w '%{http_code}' \
-              -X "$method" \
-              -H "$AUTH_HEADER" \
-              "$@" \
-              "${API}${path}")"; then
+            if ! http_code="$(curl -ksS -o "$body_file" -w '%{http_code}' \
+              -X "$method" -H "$AUTH_HEADER" "$@" "${API}${path}")"; then
               rm -f "$body_file"
               fail "Impossible de joindre l'API Proxmox ${PROXMOX_HOST}:${PROXMOX_PORT}."
             fi
@@ -148,7 +144,6 @@ jobs:
               [ -n "$body" ] || body="aucun détail retourné"
               fail "API Proxmox ${method} ${path} : HTTP ${http_code} — ${body}"
             fi
-
             printf '%s' "$body"
           }
 
@@ -165,11 +160,8 @@ jobs:
           }
 
           wait_task() {
-            local node="$1"
-            local upid="$2"
-            local encoded response status exitstatus
+            local node="$1" upid="$2" encoded response status exitstatus
             encoded="$(url_encode "$upid")"
-
             for _ in $(seq 1 300); do
               response="$(api_get "/nodes/${node}/tasks/${encoded}/status")"
               status="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("status", ""))')"
@@ -195,24 +187,20 @@ jobs:
                   print(item.get("node", ""))
                   break
           ' "$TEMPLATE_VMID")"
-
           [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable ou non visible avec ce token."
           echo "Template ${TEMPLATE_VMID} détecté sur le nœud : $node"
 
           VMID="$(printf '%s' "$cluster_resources" | python3 -c '
           import json,sys
-          minimum=int(sys.argv[1])
-          maximum=int(sys.argv[2])
+          minimum=int(sys.argv[1]); maximum=int(sys.argv[2])
           used={int(x.get("vmid", -1)) for x in json.load(sys.stdin).get("data", [])}
           for vmid in range(minimum, maximum + 1):
               if vmid not in used:
-                  print(vmid)
-                  break
+                  print(vmid); break
           ' "$VMID_MIN" "$VMID_MAX")"
-
           [ -n "$VMID" ] || fail "Pool VMID saturé : tous les VMID ${VMID_MIN}-${VMID_MAX} sont déjà utilisés."
-          EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
 
+          EXPECTED_IP="10.0.0.$((STATIC_IP_FIRST + VMID - VMID_MIN))"
           echo "VMID sélectionné : ${VMID}"
           echo "IP statique cible : ${EXPECTED_IP}"
 
@@ -222,8 +210,7 @@ jobs:
           template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
           is_template="$(printf '%s' "$template_config" | python3 -c '
           import json,sys
-          data=json.load(sys.stdin).get("data", {})
-          print("yes" if int(data.get("template", 0)) == 1 else "no")
+          print("yes" if int(json.load(sys.stdin).get("data", {}).get("template", 0)) == 1 else "no")
           ')"
           [ "$is_template" = "yes" ] || fail "Le VMID ${TEMPLATE_VMID} n'est pas marqué comme template Proxmox."
 
@@ -233,7 +220,6 @@ jobs:
             --data-urlencode "name=${VM_HOSTNAME}" \
             --data-urlencode "full=1" \
             --data-urlencode "storage=${STORAGE}")"
-
           clone_upid="$(printf '%s' "$clone_response" | json_data)"
           [ -n "$clone_upid" ] || fail "Proxmox n'a pas retourné de tâche de clonage."
           wait_task "$node" "$clone_upid"
@@ -254,11 +240,9 @@ jobs:
           for key in ["scsi0","virtio0","sata0","ide0"]:
               value=data.get(key, "")
               if isinstance(value, str) and value and "media=cdrom" not in value.lower():
-                  print(key)
-                  break
+                  print(key); break
           ')"
             [ -n "$boot_disk" ] || fail "Impossible de déterminer le disque système à agrandir."
-            echo "Agrandissement de ${boot_disk} de +${DISK_GROW_GB}G..."
             api_put "/nodes/${node}/qemu/${VMID}/resize" \
               --data-urlencode "disk=${boot_disk}" \
               --data-urlencode "size=+${DISK_GROW_GB}G" >/dev/null
@@ -268,8 +252,8 @@ jobs:
           VM_MAC="$(printf '%s' "$vm_config" | python3 -c '
           import json,re,sys
           net0=json.load(sys.stdin).get("data", {}).get("net0", "")
-          match=re.search(r"(?:=|^)([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})(?:,|$)", net0)
-          print(match.group(1).lower() if match else "")
+          m=re.search(r"(?:=|^)([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})(?:,|$)", net0)
+          print(m.group(1).lower() if m else "")
           ')"
           [ -n "$VM_MAC" ] || fail "Impossible de récupérer l'adresse MAC de la nouvelle VM."
           echo "MAC de la VM : ${VM_MAC}"
@@ -323,7 +307,7 @@ jobs:
             -i "$SSH_KEY_FILE"
             -p "$SSH_PORT"
             -o BatchMode=yes
-            -o ConnectTimeout=4
+            -o ConnectTimeout=5
             -o ConnectionAttempts=1
             -o StrictHostKeyChecking=no
             -o UserKnownHostsFile=/dev/null
@@ -333,28 +317,60 @@ jobs:
           VM_MAC="$(printf '%s' "$VM_MAC" | tr '[:upper:]' '[:lower:]')"
           DHCP_IP=""
 
-          echo "Recherche de la VM ${VMID} (${VM_MAC}) dans le pool DHCP 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST}..."
+          find_ip_by_mac() {
+            local found=""
+
+            found="$(ip neigh show | awk -v mac="$VM_MAC" '
+              tolower($0) ~ tolower(mac) { print $1; exit }
+            ')"
+
+            if [ -z "$found" ] && [ -r /proc/net/arp ]; then
+              found="$(awk -v mac="$VM_MAC" '
+                NR > 1 && tolower($4) == tolower(mac) { print $1; exit }
+              ' /proc/net/arp)"
+            fi
+
+            case "$found" in
+              10.0.0.*)
+                local octet="${found##*.}"
+                if [[ "$octet" =~ ^[0-9]+$ ]] && \
+                   (( octet >= DHCP_IP_FIRST && octet <= DHCP_IP_LAST )); then
+                  printf '%s' "$found"
+                fi
+                ;;
+            esac
+          }
+
+          echo "Recherche réseau de la VM ${VMID} par sa MAC ${VM_MAC}..."
 
           for attempt in $(seq 1 60); do
+            # Génère rapidement les entrées ARP/neighbour du LAN sans dépendre de SSH.
             for octet in $(seq "$DHCP_IP_FIRST" "$DHCP_IP_LAST"); do
-              candidate="10.0.0.${octet}"
-              remote_mac="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${candidate}" \
-                "iface=\$(ip -4 route show default | awk '{print \$5; exit}'); [ -n \"\$iface\" ] && cat /sys/class/net/\$iface/address" \
-                2>/dev/null || true)"
-              remote_mac="$(printf '%s' "$remote_mac" | tr '[:upper:]' '[:lower:]' | tr -d '\r\n ')"
-
-              if [ "$remote_mac" = "$VM_MAC" ]; then
-                DHCP_IP="$candidate"
-                break 2
-              fi
+              ping -c 1 -W 1 "10.0.0.${octet}" >/dev/null 2>&1 &
             done
+            wait || true
 
-            echo "VM pas encore joignable en SSH (tentative ${attempt}/60)."
+            DHCP_IP="$(find_ip_by_mac)"
+            if [ -n "$DHCP_IP" ]; then
+              break
+            fi
+
+            echo "MAC non trouvée dans la table réseau (tentative ${attempt}/60)."
             sleep 5
           done
 
-          [ -n "$DHCP_IP" ] || fail "Impossible de retrouver la nouvelle VM par sa MAC ${VM_MAC} dans le pool DHCP 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST}."
-          echo "VM retrouvée : ${DHCP_IP} (DHCP) -> ${TARGET_IP} (statique)."
+          [ -n "$DHCP_IP" ] || fail "Impossible d'associer la MAC ${VM_MAC} à une IP du pool DHCP 10.0.0.${DHCP_IP_FIRST}-10.0.0.${DHCP_IP_LAST}."
+
+          echo "VM détectée par MAC : ${VM_MAC} -> ${DHCP_IP}"
+          echo "IP finale prévue : ${TARGET_IP}"
+
+          echo "Test de la connexion SSH ${VM_SSH_USER}@${DHCP_IP}:${SSH_PORT}..."
+          SSH_TEST_OUTPUT=""
+          if ! SSH_TEST_OUTPUT="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" "printf SSH_OK" 2>&1)"; then
+            fail "La VM est bien détectée en ${DHCP_IP}, mais SSH échoue : ${SSH_TEST_OUTPUT}"
+          fi
+          [ "$SSH_TEST_OUTPUT" = "SSH_OK" ] || fail "Réponse SSH inattendue depuis ${DHCP_IP}: ${SSH_TEST_OUTPUT}"
+          echo "Connexion SSH par clé réussie."
 
           echo "Vérification de l'authentification sudo..."
           if ! printf '%s\n' "$VM_SUDO_PASSWORD" | \
@@ -362,6 +378,7 @@ jobs:
               "sudo -S -k -p '' true" >/dev/null 2>&1; then
             fail "Le mot de passe sudo du secret VM_SUDO_PASSWORD est incorrect, ou le compte ${VM_SSH_USER} n'est pas autorisé à utiliser sudo."
           fi
+          echo "Authentification sudo réussie."
 
           cat > "$REMOTE_SCRIPT_FILE" <<'REMOTE_SCRIPT'
           set -euo pipefail
@@ -375,7 +392,6 @@ jobs:
           IFACE="$(ip -4 route show default | awk '{print $5; exit}')"
           [ -n "$IFACE" ] || { echo "Interface réseau principale introuvable." >&2; exit 1; }
 
-          # Sauvegarde puis met à jour explicitement les fichiers d'identité Debian.
           TIMESTAMP="$(date +%Y%m%d%H%M%S)"
           cp -a /etc/hostname "/etc/hostname.before-github-actions-${TIMESTAMP}" 2>/dev/null || true
           cp -a /etc/hosts "/etc/hosts.before-github-actions-${TIMESTAMP}" 2>/dev/null || true
@@ -417,7 +433,7 @@ jobs:
 
           elif [ -f /etc/network/interfaces ]; then
             BACKEND="ifupdown"
-            cp -a /etc/network/interfaces "/etc/network/interfaces.before-github-actions-$(date +%Y%m%d%H%M%S)"
+            cp -a /etc/network/interfaces "/etc/network/interfaces.before-github-actions-${TIMESTAMP}"
             cat > /etc/network/interfaces <<EOF
           auto lo
           iface lo inet loopback
@@ -463,11 +479,10 @@ jobs:
             fi
             sleep 5
           done
-
           [ "$READY" = "true" ] || fail "La VM ne répond pas en SSH sur ${TARGET_IP} après redémarrage."
 
           VERIFY="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${TARGET_IP}" \
-            "printf 'hostname='; hostname; printf 'hostname_file='; cat /etc/hostname; printf 'hosts_entry='; grep -E '^127\\.0\\.1\\.1[[:space:]]+' /etc/hosts | head -n1; printf 'ip='; ip -4 -o addr show scope global | awk '{print \\$4}' | head -n1; printf 'gateway='; ip -4 route show default | awk '{print \\$3; exit}'")"
+            "printf 'hostname='; hostname; printf ' hostname_file='; cat /etc/hostname; printf ' hosts_entry='; grep -E '^127\\.0\\.1\\.1[[:space:]]+' /etc/hosts | head -n1; printf ' ip='; ip -4 -o addr show scope global | awk '{print \$4}' | head -n1; printf ' gateway='; ip -4 route show default | awk '{print \$3; exit}'")"
           printf '%s\n' "$VERIFY"
 
           echo "dhcp_ip=${DHCP_IP}" >> "$GITHUB_OUTPUT"
