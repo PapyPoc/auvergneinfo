@@ -80,6 +80,7 @@ jobs:
           command -v curl >/dev/null || fail "curl est requis sur runner-git."
           command -v python3 >/dev/null || fail "python3 est requis sur runner-git."
           command -v ssh >/dev/null || fail "openssh-client est requis sur runner-git."
+          command -v ssh-keygen >/dev/null || fail "ssh-keygen est requis sur runner-git."
           command -v ip >/dev/null || fail "iproute2 est requis sur runner-git."
           command -v ping >/dev/null || fail "iputils-ping est requis sur runner-git."
 
@@ -90,6 +91,20 @@ jobs:
             [ -n "${VM_SSH_USER:-}" ] || fail "Secret VM_SSH_USER absent."
             [ -n "${VM_SSH_PRIVATE_KEY:-}" ] || fail "Secret VM_SSH_PRIVATE_KEY absent."
             [ -n "${VM_SUDO_PASSWORD:-}" ] || fail "Secret VM_SUDO_PASSWORD absent."
+
+            KEY_TEST_FILE="$(mktemp)"
+            trap 'rm -f "$KEY_TEST_FILE"' EXIT
+            printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_TEST_FILE"
+            chmod 600 "$KEY_TEST_FILE"
+
+            if ! SSH_KEY_ERROR="$(ssh-keygen -y -P '' -f "$KEY_TEST_FILE" 2>&1 >/dev/null)"; then
+              if printf '%s' "$SSH_KEY_ERROR" | grep -qiE 'passphrase|incorrect passphrase'; then
+                fail "VM_SSH_PRIVATE_KEY est protégée par une passphrase. Utilise une clé dédiée sans passphrase pour l'automatisation, ou ajoute une gestion de passphrase au workflow."
+              fi
+              fail "VM_SSH_PRIVATE_KEY n'est pas une clé privée SSH valide. Vérifie que le secret contient le fichier privé complet avec ses retours à la ligne. Détail : ${SSH_KEY_ERROR:-format invalide}"
+            fi
+
+            echo "Clé privée SSH valide."
           fi
 
       - name: Créer la VM Proxmox
@@ -344,7 +359,6 @@ jobs:
           echo "Recherche réseau de la VM ${VMID} par sa MAC ${VM_MAC}..."
 
           for attempt in $(seq 1 60); do
-            # Génère rapidement les entrées ARP/neighbour du LAN sans dépendre de SSH.
             for octet in $(seq "$DHCP_IP_FIRST" "$DHCP_IP_LAST"); do
               ping -c 1 -W 1 "10.0.0.${octet}" >/dev/null 2>&1 &
             done
