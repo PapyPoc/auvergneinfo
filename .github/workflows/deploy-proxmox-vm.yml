@@ -375,6 +375,12 @@ jobs:
           IFACE="$(ip -4 route show default | awk '{print $5; exit}')"
           [ -n "$IFACE" ] || { echo "Interface réseau principale introuvable." >&2; exit 1; }
 
+          # Sauvegarde puis met à jour explicitement les fichiers d'identité Debian.
+          TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+          cp -a /etc/hostname "/etc/hostname.before-github-actions-${TIMESTAMP}" 2>/dev/null || true
+          cp -a /etc/hosts "/etc/hosts.before-github-actions-${TIMESTAMP}" 2>/dev/null || true
+
+          printf '%s\n' "$NEW_HOSTNAME" > /etc/hostname
           hostnamectl set-hostname "$NEW_HOSTNAME"
 
           if grep -qE '^127\.0\.1\.1[[:space:]]+' /etc/hosts; then
@@ -434,7 +440,7 @@ jobs:
             printf 'nameserver %s\n' "$DNS" > /etc/resolv.conf
           fi
 
-          printf 'POSTCONFIG_OK backend=%s iface=%s\n' "$BACKEND" "$IFACE"
+          printf 'POSTCONFIG_OK backend=%s iface=%s hostname=%s\n' "$BACKEND" "$IFACE" "$NEW_HOSTNAME"
           REMOTE_SCRIPT
 
           {
@@ -461,7 +467,7 @@ jobs:
           [ "$READY" = "true" ] || fail "La VM ne répond pas en SSH sur ${TARGET_IP} après redémarrage."
 
           VERIFY="$(ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${TARGET_IP}" \
-            "printf 'hostname='; hostname; printf 'ip='; ip -4 -o addr show scope global | awk '{print \$4}' | head -n1; printf 'gateway='; ip -4 route show default | awk '{print \$3; exit}'")"
+            "printf 'hostname='; hostname; printf 'hostname_file='; cat /etc/hostname; printf 'hosts_entry='; grep -E '^127\\.0\\.1\\.1[[:space:]]+' /etc/hosts | head -n1; printf 'ip='; ip -4 -o addr show scope global | awk '{print \\$4}' | head -n1; printf 'gateway='; ip -4 route show default | awk '{print \\$3; exit}'")"
           printf '%s\n' "$VERIFY"
 
           echo "dhcp_ip=${DHCP_IP}" >> "$GITHUB_OUTPUT"
