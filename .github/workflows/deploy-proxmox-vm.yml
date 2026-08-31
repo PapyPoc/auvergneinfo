@@ -97,11 +97,19 @@ jobs:
             exit 1
           }
 
-          [ -n "${PROXMOX_TOKEN_ID:-}" ] || fail "Secret PROXMOX_TOKEN_ID absent."
-          [ -n "${PROXMOX_TOKEN_SECRET:-}" ] || fail "Secret PROXMOX_TOKEN_SECRET absent."
-
           command -v curl >/dev/null || fail "curl est requis sur runner-git."
           command -v python3 >/dev/null || fail "python3 est requis sur runner-git."
+
+          # Un copier/coller dans GitHub Secrets peut conserver un CR/LF final.
+          # On nettoie uniquement les caractères de fin invisibles avant de
+          # construire l'en-tête Authorization.
+          PROXMOX_TOKEN_ID="$(printf '%s' "${PROXMOX_TOKEN_ID:-}" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
+          PROXMOX_TOKEN_SECRET="$(printf '%s' "${PROXMOX_TOKEN_SECRET:-}" | python3 -c 'import sys; print(sys.stdin.read().strip())')"
+
+          [ -n "$PROXMOX_TOKEN_ID" ] || fail "Secret PROXMOX_TOKEN_ID absent."
+          [ -n "$PROXMOX_TOKEN_SECRET" ] || fail "Secret PROXMOX_TOKEN_SECRET absent."
+          [[ "$PROXMOX_TOKEN_ID" =~ ^[^[:space:]]+@[^[:space:]!]+![^[:space:]]+$ ]] \
+            || fail "PROXMOX_TOKEN_ID invalide. Format attendu : utilisateur@realm!token."
 
           [[ "$VMID" =~ ^[0-9]+$ ]] || fail "VMID invalide : $VMID"
           (( VMID >= 100 && VMID <= 999999999 )) || fail "VMID hors plage Proxmox."
@@ -121,26 +129,53 @@ jobs:
           PY
           fi
 
-          AUTH_HEADER="Authorization: PVEAPIToken=${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
           API="https://${PROXMOX_HOST}:${PROXMOX_PORT}/api2/json"
+          AUTH_HEADER="Authorization: PVEAPIToken=${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
 
-          # Proxmox utilise souvent son certificat TLS local. -k est volontaire ici
-          # pour le réseau d'administration privé ; installer la CA Proxmox sur le
-          # runner permettra ensuite de retirer cette option.
+          api_request() {
+            local method="$1"
+            local path="$2"
+            shift 2
+
+            local body_file http_code body
+            body_file="$(mktemp)"
+
+            if ! http_code="$(curl -ksS \
+              -o "$body_file" \
+              -w '%{http_code}' \
+              -X "$method" \
+              -H "$AUTH_HEADER" \
+              "$@" \
+              "${API}${path}")"; then
+              rm -f "$body_file"
+              fail "Impossible de joindre l'API Proxmox ${PROXMOX_HOST}:${PROXMOX_PORT}."
+            fi
+
+            body="$(cat "$body_file")"
+            rm -f "$body_file"
+
+            if [[ ! "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+              [ -n "$body" ] || body="aucun détail retourné"
+              fail "API Proxmox ${method} ${path} : HTTP ${http_code} — ${body}"
+            fi
+
+            printf '%s' "$body"
+          }
+
           api_get() {
-            curl -kfsS -H "$AUTH_HEADER" "${API}$1"
+            api_request GET "$1"
           }
 
           api_post() {
             local path="$1"
             shift
-            curl -kfsS -X POST -H "$AUTH_HEADER" "$@" "${API}${path}"
+            api_request POST "$path" "$@"
           }
 
           api_put() {
             local path="$1"
             shift
-            curl -kfsS -X PUT -H "$AUTH_HEADER" "$@" "${API}${path}"
+            api_request PUT "$path" "$@"
           }
 
           json_data() {
@@ -153,6 +188,7 @@ jobs:
 
           echo "Connexion à Proxmox ${PROXMOX_HOST}:${PROXMOX_PORT}..."
           cluster_resources="$(api_get "/cluster/resources?type=vm")"
+          echo "Authentification API Proxmox réussie."
 
           node="$(printf '%s' "$cluster_resources" | python3 -c '
           import json,sys
@@ -163,7 +199,7 @@ jobs:
                   break
           ' "$TEMPLATE_VMID")"
 
-          [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable dans le cluster."
+          [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable ou non visible avec ce token."
           echo "Template ${TEMPLATE_VMID} détecté sur le nœud : $node"
 
           exists="$(printf '%s' "$cluster_resources" | python3 -c '
@@ -173,11 +209,8 @@ jobs:
           ' "$VMID")"
           [ "$exists" = "no" ] || fail "Le VMID ${VMID} existe déjà."
 
-          api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null \
-            || fail "Stockage ${STORAGE} indisponible sur ${node}."
-
-          api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null \
-            || fail "Bridge ${BRIDGE} introuvable sur ${node}. Vérifie son nom dans Proxmox."
+          api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null
+          api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null
 
           template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
           is_template="$(printf '%s' "$template_config" | python3 -c '
@@ -206,11 +239,10 @@ jobs:
 
           wait_task() {
             local upid="$1"
-            local encoded
+            local encoded response status exitstatus
             encoded="$(url_encode "$upid")"
 
             for _ in $(seq 1 300); do
-              local response status exitstatus
               response="$(api_get "/nodes/${node}/tasks/${encoded}/status")"
               status="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("status", ""))')"
 
@@ -219,7 +251,6 @@ jobs:
                 [ "$exitstatus" = "OK" ] || fail "Tâche Proxmox échouée : ${exitstatus:-inconnu}"
                 return 0
               fi
-
               sleep 2
             done
 
@@ -250,16 +281,13 @@ jobs:
             boot_disk="$(printf '%s' "$vm_config" | python3 -c '
           import json,sys
           data=json.load(sys.stdin).get("data", {})
-          preferred=["scsi0","virtio0","sata0","ide0"]
-          for key in preferred:
+          for key in ["scsi0","virtio0","sata0","ide0"]:
               value=data.get(key, "")
               if isinstance(value, str) and value and "cloudinit" not in value.lower() and "media=cdrom" not in value.lower():
                   print(key)
                   break
           ')"
             [ -n "$boot_disk" ] || fail "Impossible de déterminer le disque système à agrandir."
-
-            echo "Agrandissement de ${boot_disk} de +${DISK_GROW_GB}G..."
             api_put "/nodes/${node}/qemu/${VMID}/resize" \
               --data-urlencode "disk=${boot_disk}" \
               --data-urlencode "size=+${DISK_GROW_GB}G" >/dev/null
