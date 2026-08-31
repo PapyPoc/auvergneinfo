@@ -1,6 +1,16 @@
 name: Déployer une VM Proxmox
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'deploy/**'
+      - 'astro.config.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-proxmox-vm.yml'
   workflow_dispatch:
     inputs:
       hostname:
@@ -86,9 +96,9 @@ jobs:
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
           VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
           VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
-          VM_HOSTNAME: ${{ inputs.hostname }}
-          CORES: ${{ inputs.cores }}
-          MEMORY_MB: ${{ inputs.memory_mb }}
-          DISK_GROW_GB: ${{ inputs.disk_grow_gb }}
-          START_VM: ${{ inputs.start_vm }}
+          VM_HOSTNAME: ${{ inputs.hostname || 'web-auvergneinfo' }}
+          CORES: ${{ inputs.cores || '2' }}
+          MEMORY_MB: ${{ inputs.memory_mb || '2048' }}
+          DISK_GROW_GB: ${{ inputs.disk_grow_gb || '0' }}
+          START_VM: ${{ github.event_name != 'workflow_dispatch' || inputs.start_vm }}
         run: bash deploy/scripts/provision-and-deploy.sh
