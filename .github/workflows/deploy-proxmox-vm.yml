@@ -1,0 +1,296 @@
+name: Déployer une VM Proxmox
+
+on:
+  workflow_dispatch:
+    inputs:
+      vmid:
+        description: "VMID de la nouvelle VM"
+        required: true
+        default: "201"
+        type: string
+      hostname:
+        description: "Nom de la VM / hostname cloud-init"
+        required: true
+        default: "web-auvergneinfo"
+        type: string
+      cores:
+        description: "Nombre de vCPU"
+        required: true
+        default: "2"
+        type: string
+      memory_mb:
+        description: "Mémoire en Mo"
+        required: true
+        default: "2048"
+        type: string
+      disk_grow_gb:
+        description: "Espace à AJOUTER au disque du template, en Go (0 = inchangé)"
+        required: true
+        default: "0"
+        type: string
+      ip_mode:
+        description: "Configuration IPv4 cloud-init"
+        required: true
+        default: "dhcp"
+        type: choice
+        options:
+          - dhcp
+          - static
+      ip_address:
+        description: "Adresse/CIDR si mode static (ex. 10.0.0.50/24)"
+        required: false
+        default: "10.0.0.50/24"
+        type: string
+      gateway:
+        description: "Passerelle si mode static"
+        required: false
+        default: "10.0.0.254"
+        type: string
+      nameserver:
+        description: "Serveur DNS cloud-init"
+        required: true
+        default: "10.0.0.254"
+        type: string
+      start_vm:
+        description: "Démarrer la VM après création"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Cloner le template Debian 13 sur Proxmox
+    runs-on: [self-hosted, linux, x64, auvergneinfo]
+    timeout-minutes: 30
+
+    env:
+      PROXMOX_HOST: "10.0.0.253"
+      PROXMOX_PORT: "8006"
+      TEMPLATE_VMID: "200"
+      STORAGE: "local-btrfs"
+      BRIDGE: "vbmbr0"
+
+    steps:
+      - name: Vérifier et déployer la VM
+        shell: bash
+        env:
+          PROXMOX_TOKEN_ID: ${{ secrets.PROXMOX_TOKEN_ID }}
+          PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
+          VMID: ${{ inputs.vmid }}
+          VM_HOSTNAME: ${{ inputs.hostname }}
+          CORES: ${{ inputs.cores }}
+          MEMORY_MB: ${{ inputs.memory_mb }}
+          DISK_GROW_GB: ${{ inputs.disk_grow_gb }}
+          IP_MODE: ${{ inputs.ip_mode }}
+          IP_ADDRESS: ${{ inputs.ip_address }}
+          GATEWAY: ${{ inputs.gateway }}
+          NAMESERVER: ${{ inputs.nameserver }}
+          START_VM: ${{ inputs.start_vm }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "::error::$*"
+            exit 1
+          }
+
+          [ -n "${PROXMOX_TOKEN_ID:-}" ] || fail "Secret PROXMOX_TOKEN_ID absent."
+          [ -n "${PROXMOX_TOKEN_SECRET:-}" ] || fail "Secret PROXMOX_TOKEN_SECRET absent."
+
+          command -v curl >/dev/null || fail "curl est requis sur runner-git."
+          command -v python3 >/dev/null || fail "python3 est requis sur runner-git."
+
+          [[ "$VMID" =~ ^[0-9]+$ ]] || fail "VMID invalide : $VMID"
+          (( VMID >= 100 && VMID <= 999999999 )) || fail "VMID hors plage Proxmox."
+          [[ "$VM_HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$ ]] || fail "Hostname invalide : $VM_HOSTNAME"
+          [[ "$CORES" =~ ^[0-9]+$ ]] && (( CORES >= 1 && CORES <= 64 )) || fail "Nombre de vCPU invalide."
+          [[ "$MEMORY_MB" =~ ^[0-9]+$ ]] && (( MEMORY_MB >= 512 )) || fail "Mémoire invalide (minimum 512 Mo)."
+          [[ "$DISK_GROW_GB" =~ ^[0-9]+$ ]] || fail "disk_grow_gb doit être un entier positif ou 0."
+
+          if [ "$IP_MODE" = "static" ]; then
+            python3 - "$IP_ADDRESS" "$GATEWAY" <<'PY'
+          import ipaddress
+          import sys
+          interface = ipaddress.ip_interface(sys.argv[1])
+          gateway = ipaddress.ip_address(sys.argv[2])
+          if gateway not in interface.network:
+              raise SystemExit(f"La passerelle {gateway} n'appartient pas au réseau {interface.network}")
+          PY
+          fi
+
+          AUTH_HEADER="Authorization: PVEAPIToken=${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
+          API="https://${PROXMOX_HOST}:${PROXMOX_PORT}/api2/json"
+
+          # Proxmox utilise souvent son certificat TLS local. -k est volontaire ici
+          # pour le réseau d'administration privé ; installer la CA Proxmox sur le
+          # runner permettra ensuite de retirer cette option.
+          api_get() {
+            curl -kfsS -H "$AUTH_HEADER" "${API}$1"
+          }
+
+          api_post() {
+            local path="$1"
+            shift
+            curl -kfsS -X POST -H "$AUTH_HEADER" "$@" "${API}${path}"
+          }
+
+          api_put() {
+            local path="$1"
+            shift
+            curl -kfsS -X PUT -H "$AUTH_HEADER" "$@" "${API}${path}"
+          }
+
+          json_data() {
+            python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", ""))'
+          }
+
+          url_encode() {
+            python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+          }
+
+          echo "Connexion à Proxmox ${PROXMOX_HOST}:${PROXMOX_PORT}..."
+          cluster_resources="$(api_get "/cluster/resources?type=vm")"
+
+          node="$(printf '%s' "$cluster_resources" | python3 -c '
+          import json,sys
+          target=int(sys.argv[1])
+          for item in json.load(sys.stdin).get("data", []):
+              if int(item.get("vmid", -1)) == target:
+                  print(item.get("node", ""))
+                  break
+          ' "$TEMPLATE_VMID")"
+
+          [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable dans le cluster."
+          echo "Template ${TEMPLATE_VMID} détecté sur le nœud : $node"
+
+          exists="$(printf '%s' "$cluster_resources" | python3 -c '
+          import json,sys
+          target=int(sys.argv[1])
+          print("yes" if any(int(x.get("vmid", -1)) == target for x in json.load(sys.stdin).get("data", [])) else "no")
+          ' "$VMID")"
+          [ "$exists" = "no" ] || fail "Le VMID ${VMID} existe déjà."
+
+          api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null \
+            || fail "Stockage ${STORAGE} indisponible sur ${node}."
+
+          api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null \
+            || fail "Bridge ${BRIDGE} introuvable sur ${node}. Vérifie son nom dans Proxmox."
+
+          template_config="$(api_get "/nodes/${node}/qemu/${TEMPLATE_VMID}/config")"
+          is_template="$(printf '%s' "$template_config" | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin).get("data", {})
+          print("yes" if int(data.get("template", 0)) == 1 else "no")
+          ')"
+          [ "$is_template" = "yes" ] || fail "Le VMID ${TEMPLATE_VMID} n'est pas marqué comme template Proxmox."
+
+          has_cloudinit="$(printf '%s' "$template_config" | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin).get("data", {})
+          print("yes" if any(isinstance(v, str) and "cloudinit" in v.lower() for v in data.values()) else "no")
+          ')"
+          [ "$has_cloudinit" = "yes" ] || fail "Le template ${TEMPLATE_VMID} ne contient pas de disque Cloud-Init."
+
+          echo "Clonage complet de ${TEMPLATE_VMID} vers VMID ${VMID}..."
+          clone_response="$(api_post "/nodes/${node}/qemu/${TEMPLATE_VMID}/clone" \
+            --data-urlencode "newid=${VMID}" \
+            --data-urlencode "name=${VM_HOSTNAME}" \
+            --data-urlencode "full=1" \
+            --data-urlencode "storage=${STORAGE}")"
+
+          clone_upid="$(printf '%s' "$clone_response" | json_data)"
+          [ -n "$clone_upid" ] || fail "Proxmox n'a pas retourné de tâche de clonage."
+
+          wait_task() {
+            local upid="$1"
+            local encoded
+            encoded="$(url_encode "$upid")"
+
+            for _ in $(seq 1 300); do
+              local response status exitstatus
+              response="$(api_get "/nodes/${node}/tasks/${encoded}/status")"
+              status="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("status", ""))')"
+
+              if [ "$status" = "stopped" ]; then
+                exitstatus="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data", {}).get("exitstatus", ""))')"
+                [ "$exitstatus" = "OK" ] || fail "Tâche Proxmox échouée : ${exitstatus:-inconnu}"
+                return 0
+              fi
+
+              sleep 2
+            done
+
+            fail "Timeout en attente de la tâche Proxmox."
+          }
+
+          wait_task "$clone_upid"
+          echo "Clonage terminé."
+
+          if [ "$IP_MODE" = "static" ]; then
+            IPCONFIG="ip=${IP_ADDRESS},gw=${GATEWAY}"
+          else
+            IPCONFIG="ip=dhcp"
+          fi
+
+          echo "Configuration de la VM..."
+          api_put "/nodes/${node}/qemu/${VMID}/config" \
+            --data-urlencode "cores=${CORES}" \
+            --data-urlencode "memory=${MEMORY_MB}" \
+            --data-urlencode "net0=virtio,bridge=${BRIDGE}" \
+            --data-urlencode "ipconfig0=${IPCONFIG}" \
+            --data-urlencode "nameserver=${NAMESERVER}" \
+            --data-urlencode "agent=enabled=1" \
+            --data-urlencode "onboot=1" >/dev/null
+
+          if (( DISK_GROW_GB > 0 )); then
+            vm_config="$(api_get "/nodes/${node}/qemu/${VMID}/config")"
+            boot_disk="$(printf '%s' "$vm_config" | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin).get("data", {})
+          preferred=["scsi0","virtio0","sata0","ide0"]
+          for key in preferred:
+              value=data.get(key, "")
+              if isinstance(value, str) and value and "cloudinit" not in value.lower() and "media=cdrom" not in value.lower():
+                  print(key)
+                  break
+          ')"
+            [ -n "$boot_disk" ] || fail "Impossible de déterminer le disque système à agrandir."
+
+            echo "Agrandissement de ${boot_disk} de +${DISK_GROW_GB}G..."
+            api_put "/nodes/${node}/qemu/${VMID}/resize" \
+              --data-urlencode "disk=${boot_disk}" \
+              --data-urlencode "size=+${DISK_GROW_GB}G" >/dev/null
+          fi
+
+          vm_status="stopped"
+          if [ "$START_VM" = "true" ]; then
+            echo "Démarrage de la VM ${VMID}..."
+            start_response="$(api_post "/nodes/${node}/qemu/${VMID}/status/start")"
+            start_upid="$(printf '%s' "$start_response" | json_data)"
+            [ -n "$start_upid" ] || fail "Proxmox n'a pas retourné de tâche de démarrage."
+            wait_task "$start_upid"
+            vm_status="running"
+          fi
+
+          {
+            echo "## VM Proxmox créée"
+            echo ""
+            echo "| Paramètre | Valeur |"
+            echo "|---|---|"
+            echo "| Proxmox | ${PROXMOX_HOST} |"
+            echo "| Nœud | ${node} |"
+            echo "| Template | ${TEMPLATE_VMID} |"
+            echo "| VMID | ${VMID} |"
+            echo "| Nom | ${VM_HOSTNAME} |"
+            echo "| vCPU | ${CORES} |"
+            echo "| RAM | ${MEMORY_MB} Mo |"
+            echo "| Stockage | ${STORAGE} |"
+            echo "| Bridge | ${BRIDGE} |"
+            echo "| Réseau | ${IPCONFIG} |"
+            echo "| État | ${vm_status} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "VM ${VMID} (${VM_HOSTNAME}) créée avec succès sur ${node}."
