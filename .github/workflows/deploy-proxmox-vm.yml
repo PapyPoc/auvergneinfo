@@ -3,11 +3,6 @@ name: Déployer une VM Proxmox
 on:
   workflow_dispatch:
     inputs:
-      vmid:
-        description: "VMID de la nouvelle VM"
-        required: true
-        default: "201"
-        type: string
       hostname:
         description: "Nom de la VM dans Proxmox"
         required: true
@@ -37,6 +32,11 @@ on:
 permissions:
   contents: read
 
+# Empêche deux déploiements simultanés de sélectionner le même VMID.
+concurrency:
+  group: proxmox-web-vm-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Cloner le template Debian 13 sur Proxmox
@@ -49,6 +49,9 @@ jobs:
       TEMPLATE_VMID: "200"
       STORAGE: "local-btrfs"
       BRIDGE: "vmbr0"
+      VMID_MIN: "300"
+      VMID_MAX: "304"
+      WEB_IP_POOL: "10.0.0.151-10.0.0.155"
 
     steps:
       - name: Vérifier et déployer la VM
@@ -56,7 +59,6 @@ jobs:
         env:
           PROXMOX_TOKEN_ID: ${{ secrets.PROXMOX_TOKEN_ID }}
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
-          VMID: ${{ inputs.vmid }}
           VM_HOSTNAME: ${{ inputs.hostname }}
           CORES: ${{ inputs.cores }}
           MEMORY_MB: ${{ inputs.memory_mb }}
@@ -83,8 +85,6 @@ jobs:
           [[ "$PROXMOX_TOKEN_ID" =~ ^[^[:space:]]+@[^[:space:]!]+![^[:space:]]+$ ]] \
             || fail "PROXMOX_TOKEN_ID invalide. Format attendu : utilisateur@realm!token."
 
-          [[ "$VMID" =~ ^[0-9]+$ ]] || fail "VMID invalide : $VMID"
-          (( VMID >= 100 && VMID <= 999999999 )) || fail "VMID hors plage Proxmox."
           [[ "$VM_HOSTNAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$ ]] || fail "Nom de VM invalide : $VM_HOSTNAME"
           [[ "$CORES" =~ ^[0-9]+$ ]] && (( CORES >= 1 && CORES <= 64 )) || fail "Nombre de vCPU invalide."
           [[ "$MEMORY_MB" =~ ^[0-9]+$ ]] && (( MEMORY_MB >= 512 )) || fail "Mémoire invalide (minimum 512 Mo)."
@@ -163,12 +163,26 @@ jobs:
           [ -n "$node" ] || fail "Template VMID ${TEMPLATE_VMID} introuvable ou non visible avec ce token."
           echo "Template ${TEMPLATE_VMID} détecté sur le nœud : $node"
 
-          exists="$(printf '%s' "$cluster_resources" | python3 -c '
+          VMID="$(printf '%s' "$cluster_resources" | python3 -c '
           import json,sys
-          target=int(sys.argv[1])
-          print("yes" if any(int(x.get("vmid", -1)) == target for x in json.load(sys.stdin).get("data", [])) else "no")
-          ' "$VMID")"
-          [ "$exists" = "no" ] || fail "Le VMID ${VMID} existe déjà."
+          minimum=int(sys.argv[1])
+          maximum=int(sys.argv[2])
+          used={int(x.get("vmid", -1)) for x in json.load(sys.stdin).get("data", [])}
+          for vmid in range(minimum, maximum + 1):
+              if vmid not in used:
+                  print(vmid)
+                  break
+          ' "$VMID_MIN" "$VMID_MAX")"
+
+          [ -n "$VMID" ] || fail "Pool VMID saturé : tous les VMID ${VMID_MIN}-${VMID_MAX} sont déjà utilisés."
+          echo "VMID sélectionné automatiquement : ${VMID}"
+
+          # Correspondance logique du pool web. Sans Cloud-Init, cette adresse
+          # n'est pas injectée dans Debian : elle doit être fournie par DHCP
+          # (pfSense) ou configurée ensuite dans le système invité.
+          IP_LAST_OCTET=$((151 + VMID - VMID_MIN))
+          EXPECTED_IP="10.0.0.${IP_LAST_OCTET}"
+          echo "Adresse prévue dans le pool web : ${EXPECTED_IP}"
 
           api_get "/nodes/${node}/storage/${STORAGE}/status" >/dev/null
           api_get "/nodes/${node}/network/${BRIDGE}" >/dev/null
@@ -258,14 +272,17 @@ jobs:
             echo "| Nœud | ${node} |"
             echo "| Template | ${TEMPLATE_VMID} |"
             echo "| VMID | ${VMID} |"
+            echo "| Pool VMID | ${VMID_MIN}-${VMID_MAX} |"
             echo "| Nom Proxmox | ${VM_HOSTNAME} |"
             echo "| vCPU | ${CORES} |"
             echo "| RAM | ${MEMORY_MB} Mo |"
             echo "| Stockage | ${STORAGE} |"
             echo "| Bridge | ${BRIDGE} |"
+            echo "| Pool IP web | ${WEB_IP_POOL} |"
+            echo "| IP prévue | ${EXPECTED_IP} |"
             echo "| État | ${vm_status} |"
             echo ""
-            echo "> Aucun Cloud-Init n'est utilisé : l'IP et le hostname Debian restent ceux du système cloné."
+            echo "> Aucun Cloud-Init n'est utilisé. L'adresse ${EXPECTED_IP} n'est pas injectée dans Debian : le template doit utiliser DHCP avec le pool pfSense ${WEB_IP_POOL}, ou une post-configuration doit être ajoutée."
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "VM ${VMID} (${VM_HOSTNAME}) créée avec succès sur ${node}."
