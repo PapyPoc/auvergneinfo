@@ -289,8 +289,25 @@ if [ "$START_VM" = "true" ]; then
   done
   [ "$READY" = "true" ] || fail "La VM ${VMID} ne répond pas en SSH sur ${EXPECTED_IP}."
 
-  ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" \
-    "if command -v cloud-init >/dev/null 2>&1; then cloud-init status --wait; fi"
+  CLOUD_INIT_RC=0
+  CLOUD_INIT_OUTPUT="$(ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" \
+    "if command -v cloud-init >/dev/null 2>&1; then cloud-init status --wait --long; fi" 2>&1)" \
+    || CLOUD_INIT_RC=$?
+
+  if [ -n "$CLOUD_INIT_OUTPUT" ]; then
+    printf '%s\n' "$CLOUD_INIT_OUTPUT"
+  fi
+
+  case "$CLOUD_INIT_RC" in
+    0)
+      ;;
+    2)
+      echo "::warning::Cloud-Init a terminé avec un état dégradé (code 2). Le déploiement continue car la VM est joignable en SSH."
+      ;;
+    *)
+      fail "Cloud-Init a échoué sur ${EXPECTED_IP} avec le code ${CLOUD_INIT_RC}."
+      ;;
+  esac
 
   SUDO_MODE=""
   if ssh "${SSH_OPTS[@]}" "${CI_USER}@${EXPECTED_IP}" "sudo -n true" >/dev/null 2>&1; then
