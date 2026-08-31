@@ -329,20 +329,53 @@ if [ "$START_VM" = "true" ]; then
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 WEB_ROOT="$1"
+
+# Debian tente de démarrer nginx pendant l'installation. Sur cette image IPv4-only,
+# le vhost Debian par défaut contient listen [::]:80 et ferait échouer le postinst.
+# On bloque donc temporairement tout démarrage de service pendant apt/dpkg.
+POLICY_RC_D="/usr/sbin/policy-rc.d"
+POLICY_BACKUP=""
+restore_policy_rc_d() {
+  if [ -n "$POLICY_BACKUP" ] && [ -e "$POLICY_BACKUP" ]; then
+    mv -f "$POLICY_BACKUP" "$POLICY_RC_D"
+  else
+    rm -f "$POLICY_RC_D"
+  fi
+}
+
+if [ -e "$POLICY_RC_D" ]; then
+  POLICY_BACKUP="$(mktemp /tmp/policy-rc.d.auvergneinfo.XXXXXX)"
+  cp -a "$POLICY_RC_D" "$POLICY_BACKUP"
+fi
+cat > "$POLICY_RC_D" <<'POLICY_EOF'
+#!/bin/sh
+exit 101
+POLICY_EOF
+chmod 0755 "$POLICY_RC_D"
+trap restore_policy_rc_d EXIT
+
 apt-get update
 apt-get install -y nginx
+
 install -d -o root -g root -m 0755 "$WEB_ROOT"
 find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 tar -xzf /tmp/auvergneinfo-site.tar.gz -C "$WEB_ROOT"
 chown -R www-data:www-data "$WEB_ROOT"
 find "$WEB_ROOT" -type d -exec chmod 0755 {} +
 find "$WEB_ROOT" -type f -exec chmod 0644 {} +
+
 install -m 0644 /tmp/auvergneinfo.conf /etc/nginx/sites-available/auvergneinfo.conf
 ln -sfn /etc/nginx/sites-available/auvergneinfo.conf /etc/nginx/sites-enabled/auvergneinfo.conf
 rm -f /etc/nginx/sites-enabled/default
+
+# La configuration AuvergneInfo n'écoute qu'en IPv4.
 nginx -t
+
+restore_policy_rc_d
+trap - EXIT
 systemctl enable nginx
-systemctl reload nginx || systemctl restart nginx
+systemctl restart nginx
+
 rm -f /tmp/auvergneinfo-site.tar.gz /tmp/auvergneinfo.conf /tmp/auvergneinfo-deploy.sh
 REMOTE_EOF
 
