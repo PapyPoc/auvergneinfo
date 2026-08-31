@@ -71,7 +71,7 @@ jobs:
       PROXMOX_PORT: "8006"
       TEMPLATE_VMID: "200"
       STORAGE: "local-btrfs"
-      BRIDGE: "vbmbr0"
+      BRIDGE: "vmbr0"
 
     steps:
       - name: Vérifier et déployer la VM
