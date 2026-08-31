@@ -66,6 +66,7 @@ jobs:
           PROXMOX_TOKEN_SECRET: ${{ secrets.PROXMOX_TOKEN_SECRET }}
           VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
           VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
           START_VM: ${{ inputs.start_vm }}
         run: |
           set -euo pipefail
@@ -85,6 +86,7 @@ jobs:
           if [ "$START_VM" = "true" ]; then
             [ -n "${VM_SSH_USER:-}" ] || fail "Secret VM_SSH_USER absent."
             [ -n "${VM_SSH_PRIVATE_KEY:-}" ] || fail "Secret VM_SSH_PRIVATE_KEY absent."
+            [ -n "${VM_SUDO_PASSWORD:-}" ] || fail "Secret VM_SUDO_PASSWORD absent."
           fi
 
       - name: Créer la VM Proxmox
@@ -314,6 +316,7 @@ jobs:
           VM_HOSTNAME: ${{ inputs.hostname }}
           VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
           VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          VM_SUDO_PASSWORD: ${{ secrets.VM_SUDO_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -323,7 +326,9 @@ jobs:
           }
 
           SSH_KEY_FILE="$(mktemp)"
-          trap 'rm -f "$SSH_KEY_FILE"' EXIT
+          REMOTE_SCRIPT_FILE="$(mktemp)"
+          trap 'rm -f "$SSH_KEY_FILE" "$REMOTE_SCRIPT_FILE"' EXIT
+
           printf '%s\n' "$VM_SSH_PRIVATE_KEY" | tr -d '\r' > "$SSH_KEY_FILE"
           chmod 600 "$SSH_KEY_FILE"
 
@@ -364,8 +369,14 @@ jobs:
           [ -n "$DHCP_IP" ] || fail "Impossible de retrouver la nouvelle VM par sa MAC ${VM_MAC} dans le pool DHCP. Vérifie SSH, la clé du template et le DHCP pfSense."
           echo "VM retrouvée : ${DHCP_IP} (DHCP) -> ${TARGET_IP} (statique)."
 
-          ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
-            "sudo -n bash -s -- '$VM_HOSTNAME' '$TARGET_IP' '$NETWORK_CIDR' '$NETWORK_GATEWAY' '$NETWORK_DNS'" <<'REMOTE_SCRIPT'
+          echo "Vérification de l'authentification sudo..."
+          if ! printf '%s\n' "$VM_SUDO_PASSWORD" | \
+            ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
+              "sudo -S -k -p '' true" >/dev/null 2>&1; then
+            fail "Le mot de passe sudo du secret VM_SUDO_PASSWORD est incorrect, ou le compte ${VM_SSH_USER} n'est pas autorisé à utiliser sudo."
+          fi
+
+          cat > "$REMOTE_SCRIPT_FILE" <<'REMOTE_SCRIPT'
           set -euo pipefail
 
           NEW_HOSTNAME="$1"
@@ -439,8 +450,19 @@ jobs:
           printf 'POSTCONFIG_OK backend=%s iface=%s\n' "$BACKEND" "$IFACE"
           REMOTE_SCRIPT
 
+          # sudo lit la première ligne sur stdin comme mot de passe ; bash lit
+          # ensuite le reste du flux comme script. Le mot de passe ne figure
+          # ni dans la ligne de commande distante ni dans les logs.
+          {
+            printf '%s\n' "$VM_SUDO_PASSWORD"
+            cat "$REMOTE_SCRIPT_FILE"
+          } | ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
+            "sudo -S -k -p '' bash -s -- '$VM_HOSTNAME' '$TARGET_IP' '$NETWORK_CIDR' '$NETWORK_GATEWAY' '$NETWORK_DNS'"
+
           echo "Configuration écrite. Redémarrage de Debian..."
-          ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" "sudo -n systemctl reboot" >/dev/null 2>&1 || true
+          printf '%s\n' "$VM_SUDO_PASSWORD" | \
+            ssh "${SSH_OPTS[@]}" "${VM_SSH_USER}@${DHCP_IP}" \
+              "sudo -S -k -p '' systemctl reboot" >/dev/null 2>&1 || true
 
           echo "Attente de SSH sur ${TARGET_IP}..."
           READY="false"
