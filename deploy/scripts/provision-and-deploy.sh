@@ -299,8 +299,7 @@ if [ "$START_VM" = "true" ]; then
   fi
 
   case "$CLOUD_INIT_RC" in
-    0)
-      ;;
+    0) ;;
     2)
       echo "::warning::Cloud-Init a terminé avec un état dégradé (code 2). Le déploiement continue car la VM est joignable en SSH."
       ;;
@@ -330,9 +329,6 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 WEB_ROOT="$1"
 
-# Debian tente de démarrer nginx pendant l'installation. Sur cette image IPv4-only,
-# le vhost Debian par défaut contient listen [::]:80 et ferait échouer le postinst.
-# On bloque donc temporairement tout démarrage de service pendant apt/dpkg.
 POLICY_RC_D="/usr/sbin/policy-rc.d"
 POLICY_BACKUP=""
 restore_policy_rc_d() {
@@ -355,7 +351,7 @@ chmod 0755 "$POLICY_RC_D"
 trap restore_policy_rc_d EXIT
 
 apt-get update
-apt-get install -y nginx
+apt-get install -y nginx curl
 
 install -d -o root -g root -m 0755 "$WEB_ROOT"
 find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
@@ -368,13 +364,43 @@ install -m 0644 /tmp/auvergneinfo.conf /etc/nginx/sites-available/auvergneinfo.c
 ln -sfn /etc/nginx/sites-available/auvergneinfo.conf /etc/nginx/sites-enabled/auvergneinfo.conf
 rm -f /etc/nginx/sites-enabled/default
 
-# La configuration AuvergneInfo n'écoute qu'en IPv4.
 nginx -t
 
 restore_policy_rc_d
 trap - EXIT
+
+# Le template peut avoir UFW actif avec uniquement SSH autorisé.
+if command -v ufw >/dev/null 2>&1; then
+  echo "Configuration UFW : autorisation de HTTP/80..."
+  ufw allow 80/tcp >/dev/null
+  ufw status || true
+fi
+
 systemctl enable nginx
 systemctl restart nginx
+
+if ! systemctl is-active --quiet nginx; then
+  echo "=== systemctl status nginx ===" >&2
+  systemctl status nginx --no-pager -l >&2 || true
+  echo "=== journal nginx ===" >&2
+  journalctl -u nginx -n 80 --no-pager >&2 || true
+  exit 1
+fi
+
+echo "=== écoute TCP Nginx ==="
+ss -ltnp | grep -E 'LISTEN.*:80([[:space:]]|$)' || {
+  echo "Nginx est actif mais aucun socket TCP/80 n'est en écoute." >&2
+  exit 1
+}
+
+echo "=== test HTTP local ==="
+LOCAL_HTTP_CODE="$(curl -sS --connect-timeout 2 --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/ || true)"
+echo "HTTP local 127.0.0.1 : ${LOCAL_HTTP_CODE:-échec}"
+[ "$LOCAL_HTTP_CODE" = "200" ] || {
+  echo "Nginx ne sert pas le site localement." >&2
+  tail -n 80 /var/log/nginx/error.log >&2 || true
+  exit 1
+}
 
 rm -f /tmp/auvergneinfo-site.tar.gz /tmp/auvergneinfo.conf /tmp/auvergneinfo-deploy.sh
 REMOTE_EOF
@@ -395,16 +421,18 @@ REMOTE_EOF
       "sudo -S -k -p '' bash /tmp/auvergneinfo-deploy.sh '$WEB_ROOT'"
   fi
 
+  echo "Test HTTP depuis runner-git vers http://${EXPECTED_IP}/..."
   HTTP_OK="false"
-  for _ in $(seq 1 20); do
-    HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://${EXPECTED_IP}/" || true)"
-    if [ "$HTTP_CODE" = "200" ]; then
+  LAST_HTTP_CODE=""
+  for _ in $(seq 1 10); do
+    LAST_HTTP_CODE="$(curl -sS --connect-timeout 2 --max-time 5 -o /dev/null -w '%{http_code}' "http://${EXPECTED_IP}/" || true)"
+    if [ "$LAST_HTTP_CODE" = "200" ]; then
       HTTP_OK="true"
       break
     fi
     sleep 2
   done
-  [ "$HTTP_OK" = "true" ] || fail "Nginx ne retourne pas HTTP 200 sur http://${EXPECTED_IP}/."
+  [ "$HTTP_OK" = "true" ] || fail "Nginx répond localement dans la VM mais runner-git n'obtient pas HTTP 200 sur http://${EXPECTED_IP}/ (dernier code : ${LAST_HTTP_CODE:-aucun}). Vérifier UFW/nftables ou un filtrage réseau entre runner-git et la VM."
   SITE_DEPLOYED="true"
 fi
 
